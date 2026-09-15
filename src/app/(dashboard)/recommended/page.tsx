@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { AutoRefresh, LiveTimestamp } from "@/components/live";
 import { Card, PageTitle } from "@/components/ui";
-import { requireUser } from "@/lib/auth/session";
-import { getActiveStrategy } from "@/lib/strategy/service";
 import { getDb } from "@/db/client";
+import { requireUser } from "@/lib/auth/session";
 import { getRecommendations, type Recommendation } from "@/lib/dashboard/queries";
 import { cents, dateTime, pct, usd } from "@/lib/format";
+import { getActiveStrategy } from "@/lib/strategy/service";
 
 const STATUS_STYLE: Record<Recommendation["status"], string> = {
   ACTIVE: "bg-emerald-100 text-emerald-800",
@@ -28,21 +28,22 @@ function Figure({ label, value, hint }: { label: string; value: string; hint?: s
 
 export default async function RecommendedPage() {
   await requireUser();
-  const [recs, strategy] = await Promise.all([getRecommendations(), getActiveStrategy(getDb())]);
-  const q = strategy.config.qualification;
+  const strategy = await getActiveStrategy(getDb());
+  const bar = strategy.config.recommendations;
+  const recs = await getRecommendations(bar);
+  const barText = `at least ${pct(bar.minSideProbability, 0)} likely to win, at least ${pct(bar.minEvPerDollar, 0)} expected return after fees, and model confidence of at least ${pct(bar.minConfidence, 0)}`;
 
   return (
     <>
       <AutoRefresh seconds={60} />
       <PageTitle
         title="Recommended for you"
-        subtitle={`Trades the system qualified under strategy v${strategy.version}: at least ${pct(q.minSideProbability, 0)} likely to win and at least ${pct(q.minEvPerDollar, 0)} expected return after fees. Updates automatically.`}
+        subtitle={<>Only the system&apos;s highest-conviction picks: {barText}. The paper account also takes smaller-edge bets — those are in <Link href="/positions" className="underline">Positions</Link> and <Link href="/trades" className="underline">Trade history</Link>, not here. Updates automatically.</>}
       />
 
       {recs.length === 0 ? (
         <Card className="text-sm text-zinc-600">
-          No recommendations right now. The system only recommends a bet when its research says the outcome is at least {pct(q.minSideProbability, 0)} likely
-          <em> and</em> the price leaves a strong return. Most markets don&apos;t qualify, and that&apos;s by design.
+          No recommendations right now. A pick appears here only when research says it is {barText}. Most markets don&apos;t qualify, and that&apos;s by design.
         </Card>
       ) : (
         <div className="space-y-4">

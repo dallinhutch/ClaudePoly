@@ -14,7 +14,7 @@ import type { Db } from "@/db/client";
 import { ensureBootstrap } from "@/db/bootstrap";
 import * as schema from "@/db/schema";
 import { fetchMarket, fetchOrderBook, GammaMarketSchema } from "@/lib/polymarket/client";
-import { getActiveStrategy } from "@/lib/strategy/service";
+import { activateStrategyConfig, getActiveStrategy } from "@/lib/strategy/service";
 import { evaluateEntry } from "@/lib/trading/engine";
 import { getCashBalance } from "@/lib/trading/ledger";
 import { getPortfolioState } from "@/lib/trading/portfolio";
@@ -48,7 +48,7 @@ async function seedMarket(id: string) {
   });
 }
 
-async function seedEstimate(marketId: string, confidence = "0.850000") {
+async function seedEstimate(marketId: string, confidence = "0.850000", stage: 2 | 3 = 3) {
   const strategy = await getActiveStrategy(db);
   const dossier = {
     stage: 3,
@@ -61,10 +61,10 @@ async function seedEstimate(marketId: string, confidence = "0.850000") {
     analystFailures: [],
   };
   const [run] = await db.insert(schema.researchRuns).values({
-    marketId, stage: 3, status: "completed", strategyVersionId: strategy.id, trigger: "test", model: "fixture", effort: "high", dossier,
+    marketId, stage, status: "completed", strategyVersionId: strategy.id, trigger: "test", model: "fixture", effort: "high", dossier,
   }).returning();
   const [estimate] = await db.insert(schema.probabilityEstimates).values({
-    marketId, researchRunId: run!.id, strategyVersionId: strategy.id, stage: 3, analystCount: 5,
+    marketId, researchRunId: run!.id, strategyVersionId: strategy.id, stage, analystCount: 5,
     meanProb: "0.700000", medianProb: "0.700000", stdevProb: "0.040000", probabilityYes: "0.700000",
     confidence, evidenceQuality: "0.800000", bestSide: "YES", method: { fixture: true },
   }).returning();
@@ -136,5 +136,13 @@ describe("paper-trade lifecycle against the real schema and triggers", () => {
 
     // A resolved position can never be edited afterwards.
     await expect(db.execute(sql`update positions set shares = 1 where market_id = 'm1'`)).rejects.toThrow();
+  });
+
+  it("enters on stage-2 research only when the active strategy allows it", async () => {
+    await seedMarket("m3");
+    expect((await evaluateEntry(db, await seedEstimate("m3", "0.850000", 2))).decision).toBe("SKIPPED");
+    const cfg = (await getActiveStrategy(db)).config;
+    await db.transaction((tx) => activateStrategyConfig(tx, { ...cfg, qualification: { ...cfg.qualification, allowStage2Entries: true } }, "allow stage-2 entries"));
+    expect((await evaluateEntry(db, await seedEstimate("m3", "0.850000", 2))).decision).toBe("TRADE");
   });
 });

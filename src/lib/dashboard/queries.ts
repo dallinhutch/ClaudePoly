@@ -145,7 +145,7 @@ export interface Recommendation {
 }
 
 /** TRADE decisions from the entry engine, presented as recommendations. */
-export async function getRecommendations(): Promise<Recommendation[]> {
+export async function getRecommendations(bar: { minSideProbability: number; minEvPerDollar: number; minConfidence: number }): Promise<Recommendation[]> {
   const rows = (await getDb().execute(sql`
     select c.id, c.created_at, c.side, c.proposed_usd, c.limit_price, c.sizing,
       e.probability_yes, e.confidence,
@@ -203,7 +203,7 @@ export async function getRecommendations(): Promise<Recommendation[]> {
       status,
       paperFilled: row.filled === true,
     };
-  });
+  }).filter((r) => r.probability >= bar.minSideProbability && r.expectedReturn >= bar.minEvPerDollar && r.confidence >= bar.minConfidence);
 }
 
 export async function getOpenPositions() {

@@ -84,6 +84,8 @@ export const StrategyConfigSchema = z.object({
     minConfidence: z.number().min(0).max(1).default(0.8),
     /** Our probability that the side we BUY wins must be at least this (0.8 = "80% sure"). Never auto-tuned. */
     minSideProbability: z.number().min(0).max(1).default(0),
+    /** Allow entries on a single stage-2 estimate (cheaper, noisier) instead of requiring stage-3 research. */
+    allowStage2Entries: z.boolean().default(false),
     /** Percentage points, as a fraction: 0.12 = 12pp between our prob and the fill price. */
     minEdge: z.number().min(0).max(1).default(0.12),
     minEvPerDollar: z.number().min(0).default(0.15),
@@ -139,6 +141,16 @@ export const StrategyConfigSchema = z.object({
     maxAddsPerPosition: z.number().int().min(0).default(1),
     /** ADD blocked if price has moved against the entry by more than this (no averaging down). */
     maxAdverseMoveForAdd: z.number().min(0).max(1).default(0.02),
+  }).prefault({}),
+
+  /**
+   * The "Recommended for you" page only shows paper trades that also clear this
+   * stricter bar — it can differ from the (possibly looser) paper-trading rules.
+   */
+  recommendations: z.object({
+    minSideProbability: z.number().min(0).max(1).default(0.8),
+    minEvPerDollar: z.number().min(0).default(0.15),
+    minConfidence: z.number().min(0).max(1).default(0.7),
   }).prefault({}),
 
   autoTune: z.object({

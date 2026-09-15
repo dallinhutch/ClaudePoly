@@ -1,0 +1,47 @@
+{
+  "screening": {
+    "maxStage2PerCycle": 2,
+    "favoredPriceMin": 0,
+    "favoredPriceMax": 1,
+    "minYesPrice": 0.08,
+    "maxYesPrice": 0.92,
+    "minLiquidityUsd": 5000,
+    "minScreenScore": 0.45
+  },
+  "research": {
+    "pipelineIntervalMinutes": 15,
+    "stage2MaxWebSearches": 2,
+    "stage3MinRawEdge": 0.2,
+    "maxStage3PerDay": 2,
+    "expectedStage2CostUsd": 0.3,
+    "expectedStage3CostUsd": 2
+  },
+  "qualification": {
+    "allowStage2Entries": true,
+    "minSideProbability": 0,
+    "minConfidence": 0.45,
+    "minEdge": 0.03,
+    "minEvPerDollar": 0.04,
+    "maxAnalystStdev": 0.2,
+    "minEvidenceQuality": 0.4,
+    "maxUnresolvedContradictions": 2,
+    "maxInformationAgeHours": 72
+  },
+  "execution": {
+    "limitEdgeBuffer": 0.03,
+    "maxSlippage": 0.02
+  },
+  "monitoring": {
+    "reevaluateEveryHours": 4,
+    "reduceBelowEdge": 0,
+    "exitBelowEdge": -0.03
+  },
+  "recommendations": {
+    "minSideProbability": 0.8,
+    "minEvPerDollar": 0.15,
+    "minConfidence": 0.7
+  },
+  "autoTune": {
+    "enabled": false
+  }
+}

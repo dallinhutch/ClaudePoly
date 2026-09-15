@@ -40,6 +40,13 @@ export async function researchPipeline(db: Db) {
   `)).rows as Array<{ market_id: string; score: string }>;
   stats.candidates = candidates.length;
 
+  const decide = async (estimateId: string) => {
+    const outcome = await evaluateEntry(db, estimateId);
+    if (outcome.decision === "TRADE") stats.trades++;
+    else if (outcome.decision === "NO_TRADE") stats.noTrades++;
+    else stats.skipped++;
+  };
+
   for (const c of candidates) {
     try {
       const quick = await runStage2(db, strategy, c.market_id, "screening");
@@ -48,7 +55,10 @@ export async function researchPipeline(db: Db) {
       // Deep research is expensive: only escalate when the favored side is close to the required likelihood.
       const worthDeep = quick.bestEdge !== null && quick.bestEdge.gte(cfg.research.stage3MinRawEdge) && quick.confidence.gte(0.3)
         && sideProb !== null && sideProb.gte(Math.max(0, cfg.qualification.minSideProbability - 0.05));
-      if (!worthDeep) continue;
+      if (!worthDeep) {
+        if (cfg.qualification.allowStage2Entries) await decide(quick.estimateId);
+        continue;
+      }
 
       const countRows = (await db.execute(sql`
         select count(*)::int as count from research_runs
@@ -58,15 +68,13 @@ export async function researchPipeline(db: Db) {
       const count = countRows[0]?.count ?? 0;
       if (count >= cfg.research.maxStage3PerDay) {
         await recordAudit(db, "research.stage3_daily_cap", "market", c.market_id, { count, cap: cfg.research.maxStage3PerDay });
+        if (cfg.qualification.allowStage2Entries) await decide(quick.estimateId);
         continue;
       }
 
       const deep = await runStage3(db, strategy, c.market_id, { trigger: "stage2_escalation", parentRunId: quick.runId });
       stats.stage3++;
-      const outcome = await evaluateEntry(db, deep.estimateId);
-      if (outcome.decision === "TRADE") stats.trades++;
-      else if (outcome.decision === "NO_TRADE") stats.noTrades++;
-      else stats.skipped++;
+      await decide(deep.estimateId);
     } catch (err) {
       if (err instanceof BudgetExceededError) {
         stats.stoppedForBudget = true;
