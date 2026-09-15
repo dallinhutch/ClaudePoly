@@ -41,11 +41,15 @@ The experiment: *can an AI research system consistently identify mispriced contr
 
 ### Tiered research (cost control)
 
-1. **Stage 1: rules, free.** Every active market is scored on liquidity, volume, spread, time to resolution, price uncertainty, resolution-rule clarity and researchability. Random or unknowable markets (short-term crypto up/down, game handicaps, …) are excluded.
+1. **Stage 1: rules, free.** Active events are fetched from Gamma's `/events/keyset` endpoint (offset paging is capped at 2,000 rows), limited to those ending within the screening window. Every market is scored on liquidity, volume, spread, time to resolution, price uncertainty, resolution-rule clarity and researchability. Random or unknowable markets (short-term crypto up/down, game handicaps, …) are excluded.
 2. **Stage 2: one low-effort Claude call** with ≤4 web searches for the top-ranked markets. Escalates only if the estimated edge after fees is ≥ `research.stage3MinRawEdge`.
 3. **Stage 3: deep research.** A research agent builds an evidence dossier (sources ranked by quality tier, YES/NO evidence, base rate, contradictions, resolution edge cases, freshness). Then **5 independent analysts** (outside-view, resolution-rules, inside-view, red-team, domain) each forecast, with a few searches of their own.
 
-Every call's tokens, searches and estimated dollar cost go to `ai_usage`. A daily budget (`research.dailyBudgetUsd`) stops research; 25% is reserved for re-reviewing open positions.
+Every call's tokens, searches and estimated dollar cost go to `ai_usage`. That includes calls that fail partway, so no spend goes uncounted. Two hard caps stop research before a run starts:
+- `research.dailyBudgetUsd` limits spend per UTC day.
+- `research.totalBudgetUsd` is a lifetime cap.
+
+A share of each cap (`reviewBudgetReservePct`) is kept back for re-reviewing open positions.
 
 **Anti-anchoring:** researchers and analysts are never shown the market price, and prediction-market/odds sites are blocked from web search. Estimates are formed blind, then compared with the market.
 
@@ -141,11 +145,22 @@ Operations:
 docker compose logs -f worker          # what the system is doing
 docker compose ps
 bash scripts/backup-db.sh              # pg_dump to /opt/polytrader/backups (add to cron nightly)
+
+# set / reset the dashboard password (signs out all sessions)
+docker compose run --rm --no-deps -T -e ADMIN_PASSWORD='...' web npm run -s create-admin
+
+# change strategy: a partial JSON patch merged into the active config becomes a NEW version
+docker compose exec -T worker npx tsx scripts/apply-strategy.ts strategies/short-term-8h.json "why"
 ```
+
+Strategy changes never edit an existing version. The dashboard's Strategy page does the same thing through a form. With `autoTune.enabled`, the `auto_tune` job relaxes qualification thresholds one step at a time when a strategy produces only near-miss NO_TRADE decisions:
+- Each step is a new version with an explanatory note, and never goes below the configured floors.
+- Liquidity, freshness and resolution-clarity rules are never loosened.
 
 ## Security
 
-- Single admin login with Argon2id password hashing. Failed logins are rate-limited per IP (5 per 15 min) and per email (10 per 15 min).
+- Single-owner, password-only login with Argon2id password hashing.
+- Failed logins are rate-limited per IP (5 per 15 min). A global lockout (30 failures per 15 min) makes guessing impractical even from many IPs. Passwords under 12 characters need `ALLOW_SHORT_PASSWORD=1` when set.
 - Sessions use random 256-bit tokens in `__Host-` HttpOnly, Secure, SameSite=Strict cookies; only an HMAC of the token is stored.
 - Every page, route and server action checks the session server-side.
 - AI and Polymarket calls happen only on the server. Links from AI output are restricted to http(s).

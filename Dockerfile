@@ -23,6 +23,7 @@ COPY --chown=app:app package.json tsconfig.json next.config.ts drizzle.config.ts
 COPY --chown=app:app drizzle ./drizzle
 COPY --chown=app:app src ./src
 COPY --chown=app:app scripts ./scripts
+COPY --chown=app:app strategies ./strategies
 USER app
 EXPOSE 3000
 CMD ["npm", "run", "start"]
