@@ -31,6 +31,10 @@ export const StrategyConfigSchema = z.object({
     excludedTags: z.array(z.string()).default(["Crypto Prices", "Esports", "Mentions"]),
     minScreenScore: z.number().min(0).max(1).default(0.55),
     maxStage2PerCycle: z.number().int().min(0).default(6),
+    /** Short-horizon mode: rank contracts that resolve soonest highest. */
+    preferShortTerm: z.boolean().default(false),
+    /** In short-horizon mode, contracts resolving within this many hours get the full time score. */
+    shortTermIdealHours: z.number().min(1).default(48),
   }).prefault({}),
 
   research: z.object({
@@ -55,6 +59,11 @@ export const StrategyConfigSchema = z.object({
     /** Don't re-research the same market more often than this (unless held). */
     cooldownHours: z.number().min(0).default(24),
     dailyBudgetUsd: z.number().min(0).default(10),
+    /** Lifetime cap on real AI spend across all days. */
+    totalBudgetUsd: z.number().min(0).default(10),
+    /** Pre-flight cost estimates used by the budget gate (actual cost is recorded per call). */
+    expectedStage2CostUsd: z.number().min(0).default(0.4),
+    expectedStage3CostUsd: z.number().min(0).default(3),
     /** Share of the daily budget new-market research may NOT use, so open positions can always be re-reviewed. */
     reviewBudgetReservePct: z.number().min(0).max(1).default(0.25),
     /** How often the worker looks for new markets to research. */
@@ -122,6 +131,27 @@ export const StrategyConfigSchema = z.object({
     maxAddsPerPosition: z.number().int().min(0).default(1),
     /** ADD blocked if price has moved against the entry by more than this (no averaging down). */
     maxAdverseMoveForAdd: z.number().min(0).max(1).default(0.02),
+  }).prefault({}),
+
+  autoTune: z.object({
+    /**
+     * If a strategy produces no trades, relax qualification one step (a new
+     * strategy version each time, never below the floors). Only NO_TRADE
+     * decisions that failed purely on tunable thresholds count as near misses.
+     */
+    enabled: z.boolean().default(false),
+    minHoursWithoutTrade: z.number().min(0.25).default(2),
+    minNoTradeDecisions: z.number().int().min(1).default(2),
+    confidenceStep: z.number().min(0).default(0.05),
+    confidenceFloor: z.number().min(0).max(1).default(0.55),
+    edgeStep: z.number().min(0).default(0.02),
+    edgeFloor: z.number().min(0).max(1).default(0.05),
+    evStep: z.number().min(0).default(0.03),
+    evFloor: z.number().min(0).default(0.06),
+    stdevStep: z.number().min(0).default(0.02),
+    stdevCap: z.number().min(0).max(1).default(0.16),
+    evidenceStep: z.number().min(0).default(0.05),
+    evidenceFloor: z.number().min(0).max(1).default(0.4),
   }).prefault({}),
 });
 

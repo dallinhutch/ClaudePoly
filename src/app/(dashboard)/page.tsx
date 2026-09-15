@@ -19,7 +19,7 @@ export default async function OverviewPage() {
         <Stat label="Realized P&L" value={signedUsd(o.realizedPnl)} valueClass={pnlClass(o.realizedPnl)} />
         <Stat label="Unrealized P&L" value={signedUsd(o.unrealizedPnl)} valueClass={pnlClass(o.unrealizedPnl)} />
         <Stat label="Max drawdown" value={pct(o.maxDrawdown)} hint={`Current ${pct(o.currentDrawdown)}`} />
-        <Stat label="AI research spend today" value={usd(o.aiSpendToday)} hint="Real Anthropic API cost" />
+        <Stat label="AI research spend" value={usd(o.aiSpendTotal)} hint={`of ${usd(o.aiBudgetTotal)} cap · ${usd(o.aiSpendToday)} today (real API cost)`} />
       </div>
       <Section title="Latest system jobs">
         <Table head={["Job", "Status", "Started", "Finished", "Summary"]} empty="The worker hasn't run yet.">

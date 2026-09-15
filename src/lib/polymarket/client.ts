@@ -142,21 +142,34 @@ function parseMarkets(raw: unknown[]): GammaMarket[] {
   return out;
 }
 
-/** Page through all active, open events (each with nested markets + tags). */
-export async function* fetchActiveEvents(pageSize = 100, maxPages = 200): AsyncGenerator<GammaEvent[]> {
+const KeysetEventsSchema = z.object({ events: z.array(z.unknown()), next_cursor: z.string().nullish() });
+
+/**
+ * Page through active, open events (each with nested markets + tags). Uses the
+ * keyset endpoint: offset paging is capped at 2,000 rows by the API. An optional
+ * end-date window keeps short-horizon scans small.
+ */
+export async function* fetchActiveEvents(opts: { endDateMin?: Date; endDateMax?: Date; pageSize?: number; maxPages?: number } = {}): AsyncGenerator<GammaEvent[]> {
+  const pageSize = opts.pageSize ?? 100;
+  const maxPages = opts.maxPages ?? 500;
+  let cursor: string | null = null;
   for (let page = 0; page < maxPages; page++) {
-    const url = `${GAMMA}/events?active=true&closed=false&archived=false&limit=${pageSize}&offset=${page * pageSize}`;
-    const data = await getJson(url);
-    if (!Array.isArray(data) || data.length === 0) return;
+    const params = new URLSearchParams({ active: "true", closed: "false", limit: String(pageSize) });
+    if (opts.endDateMin) params.set("end_date_min", opts.endDateMin.toISOString());
+    if (opts.endDateMax) params.set("end_date_max", opts.endDateMax.toISOString());
+    if (cursor) params.set("after_cursor", cursor);
+    const parsedPage = KeysetEventsSchema.safeParse(await getJson(`${GAMMA}/events/keyset?${params}`));
+    if (!parsedPage.success) throw new Error(`unexpected keyset response: ${parsedPage.error.message.slice(0, 200)}`);
     const events: GammaEvent[] = [];
-    for (const e of data) {
+    for (const e of parsedPage.data.events) {
       const parsed = GammaEventSchema.safeParse(e);
       if (!parsed.success) continue;
       const rawMarkets = (e as { markets?: unknown }).markets;
       events.push({ ...parsed.data, markets: parseMarkets(Array.isArray(rawMarkets) ? rawMarkets : []) });
     }
-    yield events;
-    if (data.length < pageSize) return;
+    if (events.length > 0) yield events;
+    cursor = parsedPage.data.next_cursor ?? null;
+    if (!cursor || parsedPage.data.events.length === 0) return;
   }
 }
 

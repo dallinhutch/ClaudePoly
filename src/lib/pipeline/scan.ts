@@ -17,7 +17,9 @@ export async function scanAndScreen(db: Db) {
   const strategy = await getActiveStrategy(db);
   const cfg = strategy.config.screening;
   const scanStartedAt = new Date();
-  const ingest = await ingestActiveMarkets(db, { historyMinLiquidityUsd: cfg.minLiquidityUsd });
+  // Only events that can pass the time-to-resolution screen are fetched (plus a day of slack).
+  const endDateMax = new Date(Date.now() + (cfg.maxDaysToResolution + 1) * 86_400_000);
+  const ingest = await ingestActiveMarkets(db, { historyMinLiquidityUsd: cfg.minLiquidityUsd, endDateMax });
 
   const fresh = await db.select().from(markets)
     .where(and(eq(markets.active, true), eq(markets.closed, false), gte(markets.updatedAt, scanStartedAt)));

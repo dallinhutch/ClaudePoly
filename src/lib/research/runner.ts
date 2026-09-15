@@ -1,4 +1,5 @@
 import { eq, gte, sql } from "drizzle-orm";
+import type { z } from "zod";
 import type { Db, DbOrTx } from "@/db/client";
 import { aiUsage, analystPredictions, markets, polymarketEvents, probabilityEstimates, researchRuns, researchSources } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
@@ -8,7 +9,7 @@ import type { ActiveStrategy } from "@/lib/strategy/service";
 import { feeModelFromMarket, feePerShare } from "@/lib/trading/execution";
 import { bestSide } from "@/lib/trading/probability";
 import { aggregateAnalysts, type AggregateResult, type AnalystInput } from "./aggregate";
-import { runSubmitAgent, type AgentResult } from "./claude";
+import { AgentCallError, runSubmitAgent, type AgentResult, type AgentSpend } from "./claude";
 import {
   ANALYST_PERSPECTIVES, analystPrompt, dossierPrompt, quickEstimatePrompt, recentDevelopmentsFocus, RESEARCH_SYSTEM, type MarketBrief,
 } from "./prompts";
@@ -16,33 +17,37 @@ import {
   AnalystEstimateSchema, clampTier, DossierSchema, probabilityProblems, QuickEstimateSchema, type Dossier, type SourceSchema,
 } from "./schemas";
 import { parseIsoDate, type StoredDossier } from "./signals";
-import type { z } from "zod";
 
 type MarketRow = typeof markets.$inferSelect;
 type EventRow = typeof polymarketEvents.$inferSelect;
 
 export class BudgetExceededError extends Error {}
 
-/** Rough pre-flight cost estimates used only for the budget gate. */
-const EXPECTED_COST_USD = { stage2: 0.4, stage3: 4 } as const;
-
-export async function aiSpendTodayUsd(db: DbOrTx): Promise<Dec> {
-  const [row] = await db
-    .select({ total: sql<string>`coalesce(sum(${aiUsage.costUsd}), 0)` })
-    .from(aiUsage)
-    .where(gte(aiUsage.createdAt, sql`date_trunc('day', now() at time zone 'utc') at time zone 'utc'`));
-  return dec(row?.total ?? 0);
-}
-
 /** "review" = re-checking an open position; it may use the reserved slice of the budget. */
 export type ResearchPurpose = "discovery" | "review";
 
-async function assertBudget(db: DbOrTx, strategy: ActiveStrategy, expected: number, purpose: ResearchPurpose) {
-  const spent = await aiSpendTodayUsd(db);
-  const { dailyBudgetUsd, reviewBudgetReservePct } = strategy.config.research;
-  const cap = purpose === "review" ? dailyBudgetUsd : dailyBudgetUsd * (1 - reviewBudgetReservePct);
-  if (spent.plus(expected).gt(cap)) {
-    throw new BudgetExceededError(`daily AI budget: spent $${spent.toFixed(2)} + ~$${expected} would exceed $${cap}`);
+const startOfUtcDay = sql`date_trunc('day', now() at time zone 'utc') at time zone 'utc'`;
+
+export async function aiSpendTodayUsd(db: DbOrTx): Promise<Dec> {
+  const [row] = await db.select({ total: sql<string>`coalesce(sum(${aiUsage.costUsd}), 0)` }).from(aiUsage).where(gte(aiUsage.createdAt, startOfUtcDay));
+  return dec(row?.total ?? 0);
+}
+
+export async function aiSpendTotalUsd(db: DbOrTx): Promise<Dec> {
+  const [row] = await db.select({ total: sql<string>`coalesce(sum(${aiUsage.costUsd}), 0)` }).from(aiUsage);
+  return dec(row?.total ?? 0);
+}
+
+async function assertBudget(db: DbOrTx, strategy: ActiveStrategy, stage: 2 | 3, purpose: ResearchPurpose) {
+  const r = strategy.config.research;
+  const expected = stage === 2 ? r.expectedStage2CostUsd : r.expectedStage3CostUsd;
+  const share = purpose === "review" ? 1 : 1 - r.reviewBudgetReservePct;
+  const [today, total] = await Promise.all([aiSpendTodayUsd(db), aiSpendTotalUsd(db)]);
+  if (today.plus(expected).gt(r.dailyBudgetUsd * share)) {
+    throw new BudgetExceededError(`daily AI budget: $${today.toFixed(2)} spent today; stage-${stage} (~$${expected}) would exceed $${(r.dailyBudgetUsd * share).toFixed(2)} for ${purpose}`);
+  }
+  if (total.plus(expected).gt(r.totalBudgetUsd * share)) {
+    throw new BudgetExceededError(`total AI budget: $${total.toFixed(2)} spent overall; stage-${stage} (~$${expected}) would exceed $${(r.totalBudgetUsd * share).toFixed(2)} for ${purpose}`);
   }
 }
 
@@ -93,22 +98,39 @@ async function storeSources(db: DbOrTx, runId: string, sources: Array<z.infer<ty
   })));
 }
 
-async function recordUsage(db: DbOrTx, runId: string, purpose: string, r: AgentResult<unknown>) {
+async function recordUsage(db: DbOrTx, runId: string, purpose: string, s: AgentSpend) {
+  if (s.usage.inputTokens === 0 && s.usage.outputTokens === 0 && s.costUsd.isZero()) return;
   await db.insert(aiUsage).values({
     researchRunId: runId,
     purpose,
-    model: r.models.join(","),
-    inputTokens: r.usage.inputTokens,
-    outputTokens: r.usage.outputTokens,
-    cacheCreationTokens: r.usage.cacheCreationTokens,
-    cacheReadTokens: r.usage.cacheReadTokens,
-    webSearchRequests: r.usage.webSearchRequests,
-    costUsd: toDb(r.costUsd),
+    model: s.models.join(",") || "unknown",
+    inputTokens: s.usage.inputTokens,
+    outputTokens: s.usage.outputTokens,
+    cacheCreationTokens: s.usage.cacheCreationTokens,
+    cacheReadTokens: s.usage.cacheReadTokens,
+    webSearchRequests: s.usage.webSearchRequests,
+    costUsd: toDb(s.costUsd),
   });
 }
 
-function totals(results: AgentResult<unknown>[]) {
-  return results.reduce(
+/** Every agent call goes through here so its cost is recorded whether it succeeds or fails. */
+async function callAgent<T>(db: DbOrTx, runId: string, purpose: string, spent: AgentSpend[], call: () => Promise<AgentResult<T>>): Promise<AgentResult<T>> {
+  try {
+    const r = await call();
+    spent.push(r);
+    await recordUsage(db, runId, purpose, r);
+    return r;
+  } catch (err) {
+    if (err instanceof AgentCallError) {
+      spent.push(err.spend);
+      await recordUsage(db, runId, `${purpose}_failed`, err.spend);
+    }
+    throw err;
+  }
+}
+
+function totals(spent: AgentSpend[]) {
+  return spent.reduce(
     (t, r) => ({
       inputTokens: t.inputTokens + r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheCreationTokens,
       outputTokens: t.outputTokens + r.usage.outputTokens,
@@ -199,18 +221,18 @@ async function startRun(db: Db, market: MarketRow, strategy: ActiveStrategy, sta
   return run!.id;
 }
 
-async function failRun(db: Db, runId: string, err: unknown, results: AgentResult<unknown>[]) {
-  const t = totals(results);
+async function failRun(db: Db, runId: string, err: unknown, spent: AgentSpend[]) {
+  const t = totals(spent);
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
   await db.update(researchRuns).set({
     status: "failed", completedAt: new Date(), error: message.slice(0, 2000),
     inputTokens: t.inputTokens, outputTokens: t.outputTokens, webSearchRequests: t.webSearchRequests, costUsd: toDb(t.costUsd),
   }).where(eq(researchRuns.id, runId));
-  await recordAudit(db, "research.failed", "research_run", runId, { error: message });
+  await recordAudit(db, "research.failed", "research_run", runId, { error: message, costUsd: t.costUsd });
 }
 
-async function completeRun(db: Db, runId: string, dossier: StoredDossier, results: AgentResult<unknown>[]) {
-  const t = totals(results);
+async function completeRun(db: Db, runId: string, dossier: StoredDossier, spent: AgentSpend[]) {
+  const t = totals(spent);
   await db.update(researchRuns).set({
     status: "completed", completedAt: new Date(), dossier,
     inputTokens: t.inputTokens, outputTokens: t.outputTokens, webSearchRequests: t.webSearchRequests, costUsd: toDb(t.costUsd),
@@ -218,16 +240,16 @@ async function completeRun(db: Db, runId: string, dossier: StoredDossier, result
   return t;
 }
 
-/** Stage 2: one moderate-effort pass with a few searches. Decides whether stage 3 is worth paying for. */
+/** Stage 2: one low-effort pass with a few searches. Decides whether stage 3 is worth paying for. */
 export async function runStage2(db: Db, strategy: ActiveStrategy, marketId: string, trigger: string, purpose: ResearchPurpose = "discovery"): Promise<EstimateOutcome> {
   const cfg = strategy.config.research;
-  await assertBudget(db, strategy, EXPECTED_COST_USD.stage2, purpose);
+  await assertBudget(db, strategy, 2, purpose);
   const { market, event } = await loadMarket(db, marketId);
   const runId = await startRun(db, market, strategy, 2, trigger, null);
-  const results: AgentResult<unknown>[] = [];
+  const spent: AgentSpend[] = [];
   try {
     const brief = buildBrief(market, event, new Date());
-    const r = await runSubmitAgent({
+    const r = await callAgent(db, runId, "stage2_quick_estimate", spent, () => runSubmitAgent({
       model: cfg.model,
       effort: cfg.stage2Effort,
       system: RESEARCH_SYSTEM,
@@ -236,10 +258,8 @@ export async function runStage2(db: Db, strategy: ActiveStrategy, marketId: stri
       maxWebSearches: cfg.stage2MaxWebSearches,
       blockedDomains: cfg.blockedDomains,
       validate: probabilityProblems,
-    });
-    results.push(r);
+    }));
     const q = r.output;
-    await recordUsage(db, runId, "stage2_quick_estimate", r);
     await storeSources(db, runId, q.sources, r.retrievedUrls);
     await db.insert(analystPredictions).values({
       researchRunId: runId, analystKey: "quick", perspective: "Stage-2 generalist",
@@ -253,13 +273,13 @@ export async function runStage2(db: Db, strategy: ActiveStrategy, marketId: stri
       { minAnalystEvidenceQuality: cfg.minAnalystEvidenceQuality, disagreementScale: cfg.disagreementScale },
     );
     const { estimateId, sides } = await insertEstimate(db, { market, runId, strategy, stage: 2, agg, method: { analysts: ["quick"] } });
-    const t = await completeRun(db, runId, { stage: 2, quickEstimate: q }, results);
+    const t = await completeRun(db, runId, { stage: 2, quickEstimate: q }, spent);
     await recordAudit(db, "research.completed", "research_run", runId, {
       stage: 2, estimateId, probabilityYes: agg.probabilityYes, confidence: agg.confidence, bestSide: sides.best?.side ?? null, costUsd: t.costUsd,
     });
     return { runId, estimateId, stage: 2, probabilityYes: agg.probabilityYes, confidence: agg.confidence, bestSide: sides.best?.side ?? null, bestEdge: sides.best?.edge ?? null, costUsd: t.costUsd };
   } catch (err) {
-    await failRun(db, runId, err, results);
+    await failRun(db, runId, err, spent);
     throw err;
   }
 }
@@ -272,14 +292,14 @@ export async function runStage3(db: Db, strategy: ActiveStrategy, marketId: stri
   purpose?: ResearchPurpose;
 }): Promise<EstimateOutcome> {
   const cfg = strategy.config.research;
-  await assertBudget(db, strategy, EXPECTED_COST_USD.stage3, opts.purpose ?? "discovery");
+  await assertBudget(db, strategy, 3, opts.purpose ?? "discovery");
   const { market, event } = await loadMarket(db, marketId);
   const runId = await startRun(db, market, strategy, 3, opts.trigger, opts.parentRunId ?? null);
-  const results: AgentResult<unknown>[] = [];
+  const spent: AgentSpend[] = [];
   try {
     const brief = buildBrief(market, event, new Date());
     const focus = opts.lastResearchedAt ? recentDevelopmentsFocus(opts.lastResearchedAt.toISOString()) : "";
-    const dossierResult = await runSubmitAgent({
+    const dossierResult = await callAgent(db, runId, "stage3_dossier", spent, () => runSubmitAgent({
       model: cfg.model,
       effort: cfg.stage3Effort,
       system: RESEARCH_SYSTEM,
@@ -293,17 +313,15 @@ export async function runStage3(db: Db, strategy: ActiveStrategy, marketId: stri
         if (d.base_rate.rate != null && !(d.base_rate.rate >= 0 && d.base_rate.rate <= 1)) p.push("base_rate.rate must be within 0..1 or null");
         return p;
       },
-    });
-    results.push(dossierResult);
+    }));
     const dossier: Dossier = dossierResult.output;
-    await recordUsage(db, runId, "stage3_dossier", dossierResult);
     await storeSources(db, runId, dossier.sources, dossierResult.retrievedUrls);
 
     const perspectives = Array.from({ length: cfg.analystCount }, (_, i) => {
       const p = ANALYST_PERSPECTIVES[i % ANALYST_PERSPECTIVES.length]!;
       return { ...p, key: i < ANALYST_PERSPECTIVES.length ? p.key : `${p.key}_${i}` };
     });
-    const settled = await Promise.allSettled(perspectives.map((p) => runSubmitAgent({
+    const settled = await Promise.allSettled(perspectives.map((p) => callAgent(db, runId, `stage3_analyst_${p.key}`, spent, () => runSubmitAgent({
       model: cfg.model,
       effort: cfg.stage3Effort,
       system: RESEARCH_SYSTEM,
@@ -312,7 +330,7 @@ export async function runStage3(db: Db, strategy: ActiveStrategy, marketId: stri
       maxWebSearches: cfg.analystMaxWebSearches,
       blockedDomains: cfg.blockedDomains,
       validate: probabilityProblems,
-    })));
+    }))));
 
     const inputs: AnalystInput[] = [];
     const analystFailures: string[] = [];
@@ -323,9 +341,7 @@ export async function runStage3(db: Db, strategy: ActiveStrategy, marketId: stri
         continue;
       }
       const r = s.value;
-      results.push(r);
       const a = r.output;
-      await recordUsage(db, runId, `stage3_analyst_${p.key}`, r);
       await storeSources(db, runId, a.additional_sources, r.retrievedUrls);
       await db.insert(analystPredictions).values({
         researchRunId: runId, analystKey: p.key, perspective: p.name,
@@ -346,14 +362,14 @@ export async function runStage3(db: Db, strategy: ActiveStrategy, marketId: stri
       market, runId, strategy, stage: 3, agg,
       method: { analysts: inputs.map((i) => i.analystKey), analystFailures, dossierDataQuality: dossier.data_quality.score },
     });
-    const t = await completeRun(db, runId, { stage: 3, dossier, analystFailures }, results);
+    const t = await completeRun(db, runId, { stage: 3, dossier, analystFailures }, spent);
     await recordAudit(db, "research.completed", "research_run", runId, {
       stage: 3, estimateId, analysts: inputs, probabilityYes: agg.probabilityYes, confidence: agg.confidence, stdev: agg.stdev,
       bestSide: sides.best?.side ?? null, bestEdge: sides.best?.edge ?? null, costUsd: t.costUsd,
     });
     return { runId, estimateId, stage: 3, probabilityYes: agg.probabilityYes, confidence: agg.confidence, bestSide: sides.best?.side ?? null, bestEdge: sides.best?.edge ?? null, costUsd: t.costUsd };
   } catch (err) {
-    await failRun(db, runId, err, results);
+    await failRun(db, runId, err, spent);
     throw err;
   }
 }

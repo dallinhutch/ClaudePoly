@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb, getPool } from "@/db/client";
 import { researchRuns, systemJobs } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
+import { autoTuneStrategy } from "@/lib/pipeline/autotune";
 import { monitorPositions } from "@/lib/pipeline/monitor";
 import { researchPipeline } from "@/lib/pipeline/research";
 import { scanAndScreen } from "@/lib/pipeline/scan";
@@ -37,7 +38,8 @@ async function main() {
     { name: "settle_resolutions", lockKey: 7_200_004, intervalMs: async () => 30 * MIN, run: () => settleResolvedMarkets(db) },
     { name: "monitor_positions", lockKey: 7_200_003, intervalMs: async () => (await strategy()).config.monitoring.checkIntervalMinutes * MIN, run: () => monitorPositions(db) },
     { name: "research_pipeline", lockKey: 7_200_002, intervalMs: async () => (await strategy()).config.research.pipelineIntervalMinutes * MIN, run: () => researchPipeline(db) },
-    { name: "portfolio_snapshot", lockKey: 7_200_005, intervalMs: async () => 60 * MIN, run: () => takePortfolioSnapshot(db) },
+    { name: "portfolio_snapshot", lockKey: 7_200_005, intervalMs: async () => 30 * MIN, run: () => takePortfolioSnapshot(db) },
+    { name: "auto_tune", lockKey: 7_200_006, intervalMs: async () => 30 * MIN, run: () => autoTuneStrategy(db) },
   ];
 
   const scheduler = new Scheduler(db, getPool(), jobs);

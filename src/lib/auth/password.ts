@@ -5,8 +5,9 @@ const OPTIONS = { memoryCost: 19_456, timeCost: 2, parallelism: 1, outputLen: 32
 
 export const MIN_PASSWORD_LENGTH = 12;
 
-export function hashPassword(password: string): Promise<string> {
-  if (password.length < MIN_PASSWORD_LENGTH) throw new Error(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+export function hashPassword(password: string, opts: { minLength?: number } = {}): Promise<string> {
+  const minLength = opts.minLength ?? MIN_PASSWORD_LENGTH;
+  if (password.length < minLength) throw new Error(`password must be at least ${minLength} characters`);
   return hash(password, OPTIONS);
 }
 

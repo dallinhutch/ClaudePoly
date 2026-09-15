@@ -32,6 +32,16 @@ export async function activateStrategyConfig(tx: Tx, input: unknown, notes: stri
   const config = StrategyConfigSchema.parse(input);
   const configHash = hashStrategyConfig(config);
 
+  const [current] = await tx
+    .select({ config: strategyVersions.config })
+    .from(strategyActivations)
+    .innerJoin(strategyVersions, eq(strategyActivations.strategyVersionId, strategyVersions.id))
+    .orderBy(desc(strategyActivations.id))
+    .limit(1);
+  if (current && StrategyConfigSchema.parse(current.config).sizing.startingBankrollUsd !== config.sizing.startingBankrollUsd) {
+    throw new Error("the starting bankroll is fixed once the account exists");
+  }
+
   const [existing] = await tx.select().from(strategyVersions).where(eq(strategyVersions.configHash, configHash)).limit(1);
   let id: string;
   let version: number;

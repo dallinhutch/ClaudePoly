@@ -12,7 +12,8 @@ ln -sfn ../.env .env
 
 docker compose build
 docker compose up -d postgres
-docker compose up migrate --exit-code-from migrate
+# One-off migration run; fails the script (set -e) if a migration fails.
+docker compose run --rm migrate
 docker compose up -d web worker
 docker compose ps
 

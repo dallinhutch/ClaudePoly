@@ -1,6 +1,6 @@
 import "server-only";
 import { createHmac, randomBytes } from "node:crypto";
-import { and, eq, gt, gte, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt, sql } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
@@ -15,7 +15,8 @@ export const SESSION_COOKIE = isProd ? "__Host-pt_session" : "pt_session";
 
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILS_PER_IP = 5;
-const MAX_FAILS_PER_EMAIL = 10;
+/** Account-wide lock: makes guessing a short password impractical even from many IPs. */
+const MAX_FAILS_GLOBAL = 30;
 
 function sessionSecret(): string {
   const s = process.env.SESSION_SECRET;
@@ -35,24 +36,26 @@ export async function clientIp(): Promise<string> {
 
 export type LoginResult = { ok: true } | { ok: false; error: string };
 
-export async function login(emailInput: string, password: string): Promise<LoginResult> {
+/** Single-owner app: sign in with the password only (the admin account is ADMIN_EMAIL, or the first user). */
+export async function login(password: string): Promise<LoginResult> {
   const db = getDb();
-  const email = emailInput.trim().toLowerCase();
   const ip = await clientIp();
   const since = new Date(Date.now() - RATE_WINDOW_MS);
 
   const [ipFails] = await db.select({ n: sql<number>`count(*)::int` }).from(loginAttempts)
     .where(and(eq(loginAttempts.ip, ip), eq(loginAttempts.success, false), gte(loginAttempts.createdAt, since)));
-  const [emailFails] = await db.select({ n: sql<number>`count(*)::int` }).from(loginAttempts)
-    .where(and(eq(loginAttempts.email, email), eq(loginAttempts.success, false), gte(loginAttempts.createdAt, since)));
-  if ((ipFails?.n ?? 0) >= MAX_FAILS_PER_IP || (emailFails?.n ?? 0) >= MAX_FAILS_PER_EMAIL) {
-    return { ok: false, error: "Too many failed attempts. Try again in 15 minutes." };
-  }
+  if ((ipFails?.n ?? 0) >= MAX_FAILS_PER_IP) return { ok: false, error: "Too many failed attempts. Try again in 15 minutes." };
+  const [allFails] = await db.select({ n: sql<number>`count(*)::int` }).from(loginAttempts)
+    .where(and(eq(loginAttempts.success, false), gte(loginAttempts.createdAt, since)));
+  if ((allFails?.n ?? 0) >= MAX_FAILS_GLOBAL) return { ok: false, error: "Sign-in is temporarily locked after repeated failed attempts. Try again in 15 minutes." };
 
-  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const [user] = adminEmail
+    ? await db.select().from(users).where(eq(users.email, adminEmail)).limit(1)
+    : await db.select().from(users).orderBy(asc(users.createdAt)).limit(1);
   const valid = user ? await verifyPassword(user.passwordHash, password) : (await verifyPassword(await getDummyHash(), password), false);
-  await db.insert(loginAttempts).values({ email, ip, success: valid });
-  if (!user || !valid) return { ok: false, error: "Invalid email or password." };
+  await db.insert(loginAttempts).values({ email: user?.email ?? null, ip, success: valid });
+  if (!user || !valid) return { ok: false, error: "Incorrect password." };
 
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);

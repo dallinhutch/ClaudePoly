@@ -5,7 +5,7 @@ import * as s from "@/db/schema";
 import {
   bracketOf, calibration, CONFIDENCE_BRACKETS, EDGE_BRACKETS, groupReturns, maxDrawdown, tradeStats, type ClosedTrade,
 } from "@/lib/analytics/metrics";
-import { aiSpendTodayUsd } from "@/lib/research/runner";
+import { aiSpendTodayUsd, aiSpendTotalUsd } from "@/lib/research/runner";
 import { getActiveStrategy } from "@/lib/strategy/service";
 import { getPortfolioState, positionMarkValue } from "@/lib/trading/portfolio";
 
@@ -38,6 +38,8 @@ export async function getOverview() {
     currentDrawdown: state.drawdown.toNumber(),
     maxDrawdown: maxDrawdown([start, ...snaps.map((x) => Number(x.equity)), equity]).maxDrawdown,
     aiSpendToday: (await aiSpendTodayUsd(db)).toNumber(),
+    aiSpendTotal: (await aiSpendTotalUsd(db)).toNumber(),
+    aiBudgetTotal: (await getActiveStrategy(db)).config.research.totalBudgetUsd,
     orderCount: orders?.count ?? 0,
     recentJobs,
   };

@@ -71,8 +71,17 @@ export function screenMarket(m: MarketRow, cfg: StrategyConfig["screening"], now
   );
   const researchability = tags.some((t) => RESEARCHABLE_TAGS.has(t)) ? 0.9 : tags.some((t) => LOW_RESEARCH_TAGS.has(t)) ? 0.25 : 0.5;
   const days = hoursLeft == null ? 0 : hoursLeft / 24;
-  // Sweet spot: enough time to research and for mispricing to correct, not capital locked for months.
-  const timeScore = hoursLeft == null ? 0 : days < 3 ? clamp01(days / 3) * 0.6 : days <= 60 ? 1 : clamp01(1 - (days - 60) / Math.max(1, cfg.maxDaysToResolution - 60)) * 0.8 + 0.2;
+  let timeScore = 0;
+  if (hoursLeft != null && cfg.preferShortTerm) {
+    // Short-horizon mode: the sooner a contract resolves, the better.
+    const maxHours = cfg.maxDaysToResolution * 24;
+    timeScore = hoursLeft <= cfg.shortTermIdealHours
+      ? 1
+      : clamp01(1 - (hoursLeft - cfg.shortTermIdealHours) / Math.max(1, maxHours - cfg.shortTermIdealHours)) * 0.8 + 0.2;
+  } else if (hoursLeft != null) {
+    // Sweet spot: enough time to research and for mispricing to correct, not capital locked for months.
+    timeScore = days < 3 ? clamp01(days / 3) * 0.6 : days <= 60 ? 1 : clamp01(1 - (days - 60) / Math.max(1, cfg.maxDaysToResolution - 60)) * 0.8 + 0.2;
+  }
   const uncertainty = yesPrice == null ? 0 : 4 * yesPrice * (1 - yesPrice);
   const spreadScore = spread == null ? 0.5 : clamp01(1 - spread / Math.max(cfg.maxSpread, 1e-9));
 
@@ -90,10 +99,13 @@ export function screenMarket(m: MarketRow, cfg: StrategyConfig["screening"], now
     volume24h,
     spread,
   };
+  const w = cfg.preferShortTerm
+    ? { liquidity: 0.12, volume: 0.08, time: 0.25, uncertainty: 0.12, spread: 0.08, clarity: 0.2, research: 0.15 }
+    : { liquidity: 0.15, volume: 0.1, time: 0.15, uncertainty: 0.15, spread: 0.1, clarity: 0.2, research: 0.15 };
   const score = round6(
-    0.15 * features.liquidityScore + 0.1 * features.volumeScore + 0.15 * features.timeScore +
-    0.15 * features.uncertaintyScore + 0.1 * features.spreadScore + 0.2 * features.clarityScore +
-    0.15 * features.researchabilityScore,
+    w.liquidity * features.liquidityScore + w.volume * features.volumeScore + w.time * features.timeScore +
+    w.uncertainty * features.uncertaintyScore + w.spread * features.spreadScore + w.clarity * features.clarityScore +
+    w.research * features.researchabilityScore,
   );
   if (reasons.length === 0 && score < cfg.minScreenScore) reasons.push(`score ${score} < ${cfg.minScreenScore}`);
   return { score, passed: reasons.length === 0, reasons, features };

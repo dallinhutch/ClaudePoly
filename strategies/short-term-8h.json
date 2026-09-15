@@ -1,0 +1,55 @@
+{
+  "screening": {
+    "preferShortTerm": true,
+    "shortTermIdealHours": 36,
+    "minHoursToResolution": 1.5,
+    "maxDaysToResolution": 7,
+    "minLiquidityUsd": 3000,
+    "minVolume24hUsd": 1000,
+    "maxSpread": 0.05,
+    "minScreenScore": 0.5,
+    "maxStage2PerCycle": 4
+  },
+  "research": {
+    "stage2Effort": "low",
+    "stage3Effort": "medium",
+    "stage2MaxWebSearches": 3,
+    "stage3MaxWebSearches": 8,
+    "analystCount": 3,
+    "analystMaxWebSearches": 1,
+    "stage3MinRawEdge": 0.07,
+    "maxStage3PerDay": 6,
+    "dailyBudgetUsd": 10,
+    "totalBudgetUsd": 10,
+    "reviewBudgetReservePct": 0.2,
+    "pipelineIntervalMinutes": 10,
+    "cooldownHours": 12,
+    "expectedStage2CostUsd": 0.3,
+    "expectedStage3CostUsd": 1.5
+  },
+  "qualification": {
+    "minConfidence": 0.7,
+    "minEdge": 0.08,
+    "minEvPerDollar": 0.1,
+    "minLiquidityUsd": 3000,
+    "maxAnalystStdev": 0.12,
+    "minEvidenceQuality": 0.5,
+    "maxInformationAgeHours": 48,
+    "minHoursToResolution": 1
+  },
+  "execution": {
+    "limitEdgeBuffer": 0.08,
+    "maxSlippage": 0.02
+  },
+  "monitoring": {
+    "checkIntervalMinutes": 10,
+    "reevaluateEveryHours": 3,
+    "priceMoveTrigger": 0.1,
+    "deepReviewDelta": 0.15
+  },
+  "autoTune": {
+    "enabled": true,
+    "minHoursWithoutTrade": 1.5,
+    "minNoTradeDecisions": 2
+  }
+}

@@ -133,11 +133,11 @@ export async function upsertMarkets(db: Db, rows: MarketInsert[]) {
  * Full scan of active Polymarket events/markets. Upserts metadata + latest
  * prices, and appends a price observation for markets liquid enough to matter.
  */
-export async function ingestActiveMarkets(db: Db, opts: { historyMinLiquidityUsd: number; now?: () => Date }) {
+export async function ingestActiveMarkets(db: Db, opts: { historyMinLiquidityUsd: number; endDateMax?: Date; now?: () => Date }) {
   const clock = opts.now ?? (() => new Date());
   const stats = { pages: 0, events: 0, markets: 0, skippedNonBinary: 0, historyRows: 0 };
 
-  for await (const page of fetchActiveEvents()) {
+  for await (const page of fetchActiveEvents({ endDateMin: clock(), endDateMax: opts.endDateMax })) {
     const now = clock();
     stats.pages++;
     const eventRows = page.map((e) => mapEvent(e, now));

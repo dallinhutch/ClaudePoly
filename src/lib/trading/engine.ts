@@ -45,8 +45,10 @@ export async function evaluateEntry(db: Db, estimateId: string): Promise<EntryOu
   const { estimate, market, run } = row;
 
   if (estimate.stage !== 3) return { decision: "SKIPPED", reason: "entries require stage-3 research" };
+  // Thresholds are applied at decision time under the ACTIVE strategy (recorded on
+  // the candidate). The estimate itself doesn't depend on thresholds, so a fresh
+  // estimate may be re-decided after a strategy change.
   const strategy = await getActiveStrategy(db);
-  if (strategy.id !== estimate.strategyVersionId) return { decision: "SKIPPED", reason: "strategy version changed since the estimate was made" };
   if (Date.now() - estimate.createdAt.getTime() > MAX_ESTIMATE_AGE_MS) return { decision: "SKIPPED", reason: "estimate is stale" };
   const [open] = await db.select({ id: positions.id }).from(positions).where(and(eq(positions.marketId, market.id), eq(positions.status, "OPEN"))).limit(1);
   if (open) return { decision: "SKIPPED", reason: "a position in this market is already open (monitor handles adds)" };
