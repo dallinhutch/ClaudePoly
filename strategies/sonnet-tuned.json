@@ -1,0 +1,10 @@
+{
+  "research": {
+    "stage2Effort": "medium",
+    "stage2MaxWebSearches": 4,
+    "stage3MinRawEdge": 0.12,
+    "maxStage3PerDay": 8,
+    "expectedStage2CostUsd": 0.2,
+    "expectedStage3CostUsd": 0.6
+  }
+}

@@ -55,8 +55,11 @@ export async function researchPipeline(db: Db) {
       // Deep research is expensive: only escalate when the favored side is close to the required likelihood.
       const worthDeep = quick.bestEdge !== null && quick.bestEdge.gte(cfg.research.stage3MinRawEdge) && quick.confidence.gte(0.3)
         && sideProb !== null && sideProb.gte(Math.max(0, cfg.qualification.minSideProbability - 0.05));
+      // A large apparent edge from one quick pass is more often a research error than a gift:
+      // those must go through stage 3 and are never traded on the stage-2 estimate alone.
+      const bigEdge = quick.bestEdge !== null && quick.bestEdge.gte(cfg.research.stage3MinRawEdge);
       if (!worthDeep) {
-        if (cfg.qualification.allowStage2Entries) await decide(quick.estimateId);
+        if (cfg.qualification.allowStage2Entries && !bigEdge) await decide(quick.estimateId);
         continue;
       }
 
@@ -68,7 +71,6 @@ export async function researchPipeline(db: Db) {
       const count = countRows[0]?.count ?? 0;
       if (count >= cfg.research.maxStage3PerDay) {
         await recordAudit(db, "research.stage3_daily_cap", "market", c.market_id, { count, cap: cfg.research.maxStage3PerDay });
-        if (cfg.qualification.allowStage2Entries) await decide(quick.estimateId);
         continue;
       }
 

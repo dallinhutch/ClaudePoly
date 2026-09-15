@@ -51,7 +51,7 @@ export function marketBriefText(m: MarketBrief): string {
 export function quickEstimatePrompt(m: MarketBrief, maxSearches: number): string {
   return `${marketBriefText(m)}
 
-Task: a fast first-pass forecast to decide whether this contract deserves deep research. Use up to ${maxSearches} web searches on the most decision-relevant facts. Then call submit_quick_estimate exactly once with your probability that the contract resolves YES, your confidence, the evidence quality, the resolution clarity, and the sources you actually used.`;
+Task: a fast first-pass forecast. Use up to ${maxSearches} web searches on the most decision-relevant facts, starting with the latest developments from the past few days — for scheduled events, the most recent data releases, official statements and previews usually outweigh older reporting. Then call submit_quick_estimate exactly once with your probability that the contract resolves YES, your confidence, the evidence quality, the resolution clarity, and the sources you actually used. Set newest_evidence_date to the publication date of the most recent source you relied on; if you found nothing recent, lower your confidence accordingly.`;
 }
 
 export function dossierPrompt(m: MarketBrief, maxSearches: number): string {
