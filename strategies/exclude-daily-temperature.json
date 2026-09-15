@@ -1,0 +1,5 @@
+{
+  "screening": {
+    "excludedTags": ["Crypto Prices", "Esports", "Mentions", "Daily Temperature"]
+  }
+}
