@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 const NAV: Array<[string, string]> = [
   ["/", "Overview"],
+  ["/recommended", "RECOMMENDED FOR YOU"],
   ["/opportunities", "Opportunities"],
   ["/positions", "Positions"],
   ["/trades", "Trade history"],

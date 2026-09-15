@@ -118,6 +118,94 @@ export async function getOpportunities(): Promise<OpportunityRow[]> {
   }).sort((a, b) => b.attractiveness - a.attractiveness);
 }
 
+export interface Recommendation {
+  candidateId: string;
+  recommendedAt: Date;
+  marketId: string;
+  question: string;
+  eventTitle: string | null;
+  url: string | null;
+  outcomeToBuy: string;
+  side: "YES" | "NO";
+  /** Probability the recommended outcome wins (the "how sure" number). */
+  probability: number;
+  /** Reliability score of that probability (analyst agreement × evidence quality). */
+  confidence: number;
+  /** All-in price per share (ask + fee) when recommended. */
+  price: number;
+  limitPrice: number | null;
+  returnIfRight: number;
+  expectedReturn: number;
+  recommendedUsd: number;
+  bankrollPct: number | null;
+  currentPrice: number | null;
+  resolvesAt: Date | null;
+  status: "ACTIVE" | "PRICE MOVED" | "CLOSED" | "WON" | "LOST" | "VOID";
+  paperFilled: boolean;
+}
+
+/** TRADE decisions from the entry engine, presented as recommendations. */
+export async function getRecommendations(): Promise<Recommendation[]> {
+  const rows = (await getDb().execute(sql`
+    select c.id, c.created_at, c.side, c.proposed_usd, c.limit_price, c.sizing,
+      e.probability_yes, e.confidence,
+      m.id as market_id, m.question, m.slug, m.outcomes, m.end_date, m.closed, m.yes_price, m.no_price,
+      ev.slug as event_slug, ev.title as event_title,
+      r.winning_side, r.payout_yes,
+      exists (select 1 from simulated_orders o where o.trade_candidate_id = c.id and o.filled_shares > 0) as filled
+    from trade_candidates c
+    join probability_estimates e on e.id = c.probability_estimate_id
+    join markets m on m.id = c.market_id
+    left join polymarket_events ev on ev.id = m.event_id
+    left join market_resolutions r on r.market_id = m.id
+    where c.decision = 'TRADE'
+    order by c.created_at desc
+    limit 100
+  `)).rows as Array<Record<string, unknown>>;
+
+  return rows.map((row) => {
+    const side = row.side as "YES" | "NO";
+    const outcomes = (row.outcomes as string[] | null) ?? ["Yes", "No"];
+    const pYes = Number(row.probability_yes);
+    const probability = side === "YES" ? pYes : 1 - pYes;
+    const sizing = (row.sizing ?? {}) as { allInTop?: string; portfolio?: { equity?: string } };
+    const limitPrice = n(row.limit_price as string);
+    const price = Number(sizing.allInTop ?? limitPrice ?? 0);
+    const recommendedUsd = Number(row.proposed_usd ?? 0);
+    const equity = n(sizing.portfolio?.equity);
+    const currentPrice = n((side === "YES" ? row.yes_price : row.no_price) as string);
+    let status: Recommendation["status"] = "ACTIVE";
+    if (row.winning_side === side) status = "WON";
+    else if (row.winning_side) status = "LOST";
+    else if (row.payout_yes != null) status = "VOID";
+    else if (row.closed) status = "CLOSED";
+    else if (currentPrice != null && limitPrice != null && currentPrice > limitPrice) status = "PRICE MOVED";
+    const eventSlug = row.event_slug as string | null;
+    return {
+      candidateId: row.id as string,
+      recommendedAt: new Date(row.created_at as string),
+      marketId: row.market_id as string,
+      question: row.question as string,
+      eventTitle: (row.event_title as string | null) ?? null,
+      url: eventSlug ? `https://polymarket.com/event/${eventSlug}` : null,
+      outcomeToBuy: (side === "YES" ? outcomes[0] : outcomes[1]) ?? side,
+      side,
+      probability,
+      confidence: Number(row.confidence),
+      price,
+      limitPrice,
+      returnIfRight: price > 0 ? (1 - price) / price : 0,
+      expectedReturn: price > 0 ? probability / price - 1 : 0,
+      recommendedUsd,
+      bankrollPct: equity ? recommendedUsd / equity : null,
+      currentPrice,
+      resolvesAt: row.end_date ? new Date(row.end_date as string) : null,
+      status,
+      paperFilled: row.filled === true,
+    };
+  });
+}
+
 export async function getOpenPositions() {
   const db = getDb();
   const rows = await db
