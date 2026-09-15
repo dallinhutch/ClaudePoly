@@ -1,0 +1,5 @@
+# Normalize line endings; shell scripts and Docker files must stay LF for the Linux VPS.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
