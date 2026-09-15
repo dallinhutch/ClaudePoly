@@ -1,0 +1,24 @@
+{
+  "screening": {
+    "maxStage2PerCycle": 1,
+    "favoredPriceMin": 0.55,
+    "favoredPriceMax": 0.88,
+    "minLiquidityUsd": 5000
+  },
+  "research": {
+    "stage3MinRawEdge": 0.08,
+    "pipelineIntervalMinutes": 20
+  },
+  "qualification": {
+    "minSideProbability": 0.8,
+    "minConfidence": 0.7,
+    "minEdge": 0.1,
+    "minEvPerDollar": 0.15
+  },
+  "execution": {
+    "limitEdgeBuffer": 0.1
+  },
+  "autoTune": {
+    "enabled": false
+  }
+}

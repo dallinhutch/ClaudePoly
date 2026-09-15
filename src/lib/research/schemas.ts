@@ -16,7 +16,8 @@ export const SourceSchema = z.strictObject({
   title: z.string(),
   publisher: z.string(),
   source_type: z.enum(SOURCE_TYPES),
-  quality_tier: z.number().int().describe("1 = official/primary data ... 5 = weak or unverified"),
+  // Plain number: strict tool schemas reject minimum/maximum, which .int() emits. Clamped in code.
+  quality_tier: z.number().describe("Integer 1-5: 1 = official/primary data ... 5 = weak or unverified"),
   published_date: z.string().nullable().describe("ISO date if known"),
   used_for: z.string().describe("What this source established"),
 });

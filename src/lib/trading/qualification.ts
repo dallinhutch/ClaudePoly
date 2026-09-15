@@ -35,6 +35,7 @@ export function qualifyTrade(input: QualificationInput, cfg: StrategyConfig["qua
   const r4 = (v: Dec) => Number(v.toFixed(4));
   const checks: QualificationCheck[] = [
     { name: "confidence", passed: dec(input.confidence).gte(cfg.minConfidence), value: r4(dec(input.confidence)), threshold: cfg.minConfidence },
+    { name: "side_probability", passed: dec(input.probSide).gte(cfg.minSideProbability), value: r4(dec(input.probSide)), threshold: cfg.minSideProbability },
     { name: "edge_after_fees", passed: edge.gte(cfg.minEdge), value: r4(edge), threshold: cfg.minEdge },
     { name: "ev_per_dollar", passed: ev.gte(cfg.minEvPerDollar), value: r4(ev), threshold: cfg.minEvPerDollar },
     { name: "liquidity", passed: input.liquidityUsd != null && dec(input.liquidityUsd).gte(cfg.minLiquidityUsd), value: input.liquidityUsd == null ? null : r4(dec(input.liquidityUsd)), threshold: cfg.minLiquidityUsd },

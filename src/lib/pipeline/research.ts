@@ -19,6 +19,7 @@ export async function researchPipeline(db: Db) {
       select distinct on (market_id) market_id, score, passed
       from screening_results
       where created_at > now() - interval '3 hours'
+        and strategy_version_id = ${strategy.id}
       order by market_id, created_at desc
     )
     select latest.market_id as market_id, latest.score as score
@@ -30,6 +31,8 @@ export async function researchPipeline(db: Db) {
         select 1 from research_runs r
         where r.market_id = latest.market_id
           and r.queued_at > now() - make_interval(hours => ${cfg.research.cooldownHours}::int)
+          -- a run that failed before spending anything (e.g. a request bug) doesn't start a cooldown
+          and (r.status <> 'failed' or r.cost_usd > 0)
       )
       and not exists (select 1 from positions p where p.market_id = latest.market_id and p.status = 'OPEN')
     order by latest.score desc
@@ -41,7 +44,10 @@ export async function researchPipeline(db: Db) {
     try {
       const quick = await runStage2(db, strategy, c.market_id, "screening");
       stats.stage2++;
-      const worthDeep = quick.bestEdge !== null && quick.bestEdge.gte(cfg.research.stage3MinRawEdge) && quick.confidence.gte(0.3);
+      const sideProb = quick.bestSide === "YES" ? quick.probabilityYes : quick.bestSide === "NO" ? quick.probabilityYes.neg().plus(1) : null;
+      // Deep research is expensive: only escalate when the favored side is close to the required likelihood.
+      const worthDeep = quick.bestEdge !== null && quick.bestEdge.gte(cfg.research.stage3MinRawEdge) && quick.confidence.gte(0.3)
+        && sideProb !== null && sideProb.gte(Math.max(0, cfg.qualification.minSideProbability - 0.05));
       if (!worthDeep) continue;
 
       const countRows = (await db.execute(sql`

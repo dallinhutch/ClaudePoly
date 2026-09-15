@@ -31,6 +31,12 @@ export const StrategyConfigSchema = z.object({
     excludedTags: z.array(z.string()).default(["Crypto Prices", "Esports", "Mentions"]),
     minScreenScore: z.number().min(0).max(1).default(0.55),
     maxStage2PerCycle: z.number().int().min(0).default(6),
+    /**
+     * Band for the FAVORED side's price (max of YES and NO). Used to research only
+     * contracts where a likely outcome still pays a meaningful return.
+     */
+    favoredPriceMin: z.number().min(0).max(1).default(0),
+    favoredPriceMax: z.number().min(0).max(1).default(1),
     /** Short-horizon mode: rank contracts that resolve soonest highest. */
     preferShortTerm: z.boolean().default(false),
     /** In short-horizon mode, contracts resolving within this many hours get the full time score. */
@@ -76,6 +82,8 @@ export const StrategyConfigSchema = z.object({
 
   qualification: z.object({
     minConfidence: z.number().min(0).max(1).default(0.8),
+    /** Our probability that the side we BUY wins must be at least this (0.8 = "80% sure"). Never auto-tuned. */
+    minSideProbability: z.number().min(0).max(1).default(0),
     /** Percentage points, as a fraction: 0.12 = 12pp between our prob and the fill price. */
     minEdge: z.number().min(0).max(1).default(0.12),
     minEvPerDollar: z.number().min(0).default(0.15),

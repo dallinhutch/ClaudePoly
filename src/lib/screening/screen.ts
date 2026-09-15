@@ -55,6 +55,12 @@ export function screenMarket(m: MarketRow, cfg: StrategyConfig["screening"], now
   }
   if (yesPrice == null || yesPrice < cfg.minYesPrice || yesPrice > cfg.maxYesPrice) reasons.push(`YES price ${yesPrice ?? "n/a"} outside [${cfg.minYesPrice}, ${cfg.maxYesPrice}]`);
   if (spread != null && spread > cfg.maxSpread) reasons.push(`spread ${spread} > ${cfg.maxSpread}`);
+  if (yesPrice != null) {
+    const favored = Math.max(yesPrice, 1 - yesPrice);
+    if (favored < cfg.favoredPriceMin || favored > cfg.favoredPriceMax) {
+      reasons.push(`favored-side price ${favored.toFixed(3)} outside [${cfg.favoredPriceMin}, ${cfg.favoredPriceMax}]`);
+    }
+  }
   const pattern = cfg.excludedQuestionPatterns.find((p) => question.includes(p.toLowerCase()));
   if (pattern) reasons.push(`excluded question pattern "${pattern}"`);
   const excludedTag = cfg.excludedTags.find((t) => tags.includes(t.toLowerCase()));

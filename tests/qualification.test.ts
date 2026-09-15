@@ -34,7 +34,13 @@ describe("qualifyTrade", () => {
     const r = qualifyTrade({ ...good, confidence: "0.5", analystStdev: "0.2", resolutionClarity: "ambiguous", newestEvidenceAgeHours: null }, cfg);
     const failed = r.checks.filter((c) => !c.passed).map((c) => c.name);
     expect(failed).toEqual(["confidence", "analyst_disagreement", "information_freshness", "clear_resolution"]);
-    expect(r.checks).toHaveLength(10);
+    expect(r.checks).toHaveLength(11);
+  });
+
+  it("enforces a minimum probability for the side being bought", () => {
+    const strict = { ...cfg, minSideProbability: 0.8 };
+    expect(qualifyTrade({ ...good, probSide: "0.78", allInPrice: "0.55" }, strict).rejectionReasons.some((x) => x.startsWith("side_probability"))).toBe(true);
+    expect(qualifyTrade({ ...good, probSide: "0.86", allInPrice: "0.66" }, strict).qualified).toBe(true);
   });
 
   it("rejects unknown liquidity and unresolved contradictions", () => {
