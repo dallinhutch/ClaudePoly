@@ -6,6 +6,9 @@ import { toolInputSchema } from "./schemas";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
+/** Server-side refusal fallbacks are only requested for models documented to support them. */
+const SERVER_FALLBACK_MODELS = new Set(["claude-opus-5", "claude-fable-5-1"]);
+
 let client: Anthropic | undefined;
 export function getAnthropic(): Anthropic {
   // Server-side only. The key never reaches the browser.
@@ -89,8 +92,7 @@ export async function runSubmitAgent<T>(opts: {
       const stream = anthropic.beta.messages.stream({
         model: opts.model,
         max_tokens: 32_000,
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
+        ...(SERVER_FALLBACK_MODELS.has(opts.model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
         thinking: { type: "adaptive" },
         output_config: { effort: opts.effort },
         system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],

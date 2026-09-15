@@ -1,0 +1,10 @@
+{
+  "screening": {
+    "maxStage2PerCycle": 3
+  },
+  "research": {
+    "model": "claude-sonnet-5",
+    "expectedStage2CostUsd": 0.15,
+    "expectedStage3CostUsd": 0.8
+  }
+}
