@@ -85,6 +85,9 @@ export async function runSubmitAgent<T>(opts: {
   const retrieved = new Set<string>();
   let costUsd = ZERO;
   let turn = 0;
+  // The 2026 web search/fetch tools run code execution internally; once a turn
+  // creates a container, every later request in the same exchange must name it.
+  let containerId: string | undefined;
   const spend = (): AgentSpend => ({ models: [...models], usage: { ...usage }, costUsd, retrievedUrls: [...retrieved], turns: turn });
 
   try {
@@ -92,6 +95,7 @@ export async function runSubmitAgent<T>(opts: {
       const stream = anthropic.beta.messages.stream({
         model: opts.model,
         max_tokens: 32_000,
+        ...(containerId ? { container: containerId } : {}),
         ...(SERVER_FALLBACK_MODELS.has(opts.model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
         thinking: { type: "adaptive" },
         output_config: { effort: opts.effort },
@@ -101,6 +105,7 @@ export async function runSubmitAgent<T>(opts: {
       });
       const msg = await stream.finalMessage();
 
+      containerId = msg.container?.id ?? containerId;
       models.add(msg.model);
       usage.inputTokens += msg.usage.input_tokens;
       usage.outputTokens += msg.usage.output_tokens;
