@@ -150,7 +150,9 @@ export async function reviewPosition(db: Db, strategy: ActiveStrategy, p: Positi
       closedAt: closed ? now : null,
       currentEstimateId: decisionEstimate!.id,
       currentProbability: decisionEstimate!.probabilityYes,
-      lastMarkPrice: book.bestBid,
+      // A finished market has an empty book: fall back to its published outcome price
+      // (refreshed by the settlement job) so the position isn't carried at cost.
+      lastMarkPrice: book.bestBid ?? (fresh.side === "YES" ? market.yesPrice : market.noPrice) ?? fresh.lastMarkPrice,
       lastMarkedAt: now,
       lastReviewedAt: researched ? now : fresh.lastReviewedAt,
       recommendation: action,
