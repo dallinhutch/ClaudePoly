@@ -10,7 +10,7 @@ const NAV: Array<[string, string]> = [
   ["/recommended", "RECOMMENDED FOR YOU"],
   ["/opportunities", "Opportunities"],
   ["/positions", "Positions"],
-  ["/trades", "Trade history"],
+  ["/trades", "My bets"],
   ["/performance", "Performance"],
   ["/activity", "System activity"],
   ["/strategy", "Strategy"],

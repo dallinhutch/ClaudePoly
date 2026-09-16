@@ -360,3 +360,100 @@ export async function getStrategyPage() {
   const versions = await db.select().from(s.strategyVersions).orderBy(desc(s.strategyVersions.version));
   return { active, versions };
 }
+
+export interface Bet {
+  positionId: string;
+  marketId: string;
+  question: string;
+  outcomeBought: string;
+  side: "YES" | "NO";
+  placedAt: Date;
+  settledAt: Date | null;
+  /** Total dollars spent entering (price + fees). */
+  stake: number;
+  shares: number;
+  /** All-in price paid per share. */
+  pricePaid: number;
+  /** What a share is worth now (best bid) or settled at (1 / 0 / 0.5). */
+  priceNow: number | null;
+  profit: number;
+  returnPct: number | null;
+  outcome: "OPEN" | "WON" | "LOST" | "EVEN" | "SOLD";
+  resolvesAt: Date | null;
+  url: string | null;
+}
+
+/** Positions presented as plain-language bets: stake, price, profit, return. */
+export async function getBets(): Promise<Bet[]> {
+  const rows = (await getDb().execute(sql`
+    select p.id, p.side, p.status, p.shares, p.cost_basis, p.entry_avg_price, p.realized_pnl,
+      p.last_mark_price, p.opened_at, p.closed_at,
+      m.id as market_id, m.question, m.outcomes, m.end_date,
+      ev.slug as event_slug,
+      r.winning_side, r.payout_yes, r.payout_no,
+      coalesce((select sum(o.notional_usd + o.fees_usd) from simulated_orders o
+                where o.position_id = p.id and o.direction = 'BUY'), 0) as invested
+    from positions p
+    join markets m on m.id = p.market_id
+    left join polymarket_events ev on ev.id = m.event_id
+    left join market_resolutions r on r.market_id = m.id
+    order by p.opened_at desc
+  `)).rows as Array<Record<string, unknown>>;
+
+  return rows.map((row) => {
+    const side = row.side as "YES" | "NO";
+    const outcomes = (row.outcomes as string[] | null) ?? ["Yes", "No"];
+    const status = row.status as "OPEN" | "CLOSED" | "RESOLVED";
+    const shares = Number(row.shares);
+    const stake = Number(row.invested ?? 0);
+    const realized = Number(row.realized_pnl ?? 0);
+    const costBasis = Number(row.cost_basis ?? 0);
+    const mark = n(row.last_mark_price as string);
+    const payout = row.winning_side || row.payout_yes != null
+      ? Number(side === "YES" ? row.payout_yes : row.payout_no)
+      : null;
+
+    const profit = status === "OPEN" ? realized + (mark != null ? shares * mark - costBasis : 0) : realized;
+    let outcome: Bet["outcome"] = "OPEN";
+    if (status === "RESOLVED") outcome = profit > 0.005 ? "WON" : profit < -0.005 ? "LOST" : "EVEN";
+    else if (status === "CLOSED") outcome = "SOLD";
+
+    return {
+      positionId: row.id as string,
+      marketId: row.market_id as string,
+      question: row.question as string,
+      outcomeBought: (side === "YES" ? outcomes[0] : outcomes[1]) ?? side,
+      side,
+      placedAt: new Date(row.opened_at as string),
+      settledAt: row.closed_at ? new Date(row.closed_at as string) : null,
+      stake,
+      shares,
+      pricePaid: Number(row.entry_avg_price ?? 0),
+      priceNow: status === "OPEN" ? mark : payout,
+      profit,
+      returnPct: stake > 0 ? profit / stake : null,
+      outcome,
+      resolvesAt: row.end_date ? new Date(row.end_date as string) : null,
+      url: row.event_slug ? `https://polymarket.com/event/${row.event_slug as string}` : null,
+    };
+  });
+}
+
+export function summarizeBets(bets: Bet[]) {
+  const settled = bets.filter((b) => b.outcome !== "OPEN");
+  const wins = settled.filter((b) => b.profit > 0.005).length;
+  const losses = settled.filter((b) => b.profit < -0.005).length;
+  const staked = bets.reduce((s, b) => s + b.stake, 0);
+  const profit = bets.reduce((s, b) => s + b.profit, 0);
+  return {
+    total: bets.length,
+    open: bets.length - settled.length,
+    settled: settled.length,
+    wins,
+    losses,
+    winRate: settled.length > 0 ? wins / settled.length : null,
+    staked,
+    profit,
+    returnOnStake: staked > 0 ? profit / staked : null,
+  };
+}
