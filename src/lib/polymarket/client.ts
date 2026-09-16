@@ -185,8 +185,16 @@ export async function fetchMarket(marketId: string): Promise<GammaMarket | null>
 }
 
 export async function fetchOrderBook(tokenId: string): Promise<OrderBook> {
-  const data = await getJson(`${CLOB}/book?token_id=${encodeURIComponent(tokenId)}`);
-  return OrderBookSchema.parse(data);
+  try {
+    const data = await getJson(`${CLOB}/book?token_id=${encodeURIComponent(tokenId)}`);
+    return OrderBookSchema.parse(data);
+  } catch (err) {
+    // Finished markets have their books removed; treat that as an empty book.
+    if (err instanceof PolymarketHttpError && err.status === 404) {
+      return { asset_id: tokenId, market: null, timestamp: null, hash: null, bids: [], asks: [] };
+    }
+    throw err;
+  }
 }
 
 /** Levels sorted best-first: asks ascending, bids descending. The API does not guarantee order. */
