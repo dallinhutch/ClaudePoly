@@ -16,8 +16,15 @@ import { EPS, type Level } from "../scoring";
 export interface UsProgram {
   programId: string;
   period: string;
-  /** Dollars for the whole period. */
+  /**
+   * Dollars this one market can be expected to pay over the period: the programme's pool split evenly
+   * across every market carrying the same programme on the same day (see splitSharedPools).
+   */
   pool: number;
+  /** The pool as the API shows it, which is one pot for the whole programme, not per market. */
+  programPool?: number;
+  /** How many markets share that pot. */
+  sharedBy?: number;
   discountFactor: number;
   targetSize: number;
   /** Half-width in dollars, or null when the programme has none. */

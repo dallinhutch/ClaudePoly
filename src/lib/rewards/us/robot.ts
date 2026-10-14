@@ -306,6 +306,8 @@ export interface UsScanResult {
   at: Date;
   bySize: Map<number, UsCandidate[]>;
   open: Set<string>;
+  /** Latest programme terms per market, so held markets pick up changes (and the pool split). */
+  programs: Map<string, UsProgram[]>;
   poolsSeen: NonNullable<RobotState["poolsSeen"]>;
 }
 
@@ -356,6 +358,7 @@ export async function gatherUsScan(cfg: UsRobotConfig, api: UsApi, now: Date): P
     at: now,
     bySize,
     open: new Set(markets.map((m) => m.slug)),
+    programs: new Map(markets.map((m) => [m.slug, m.programs])),
     poolsSeen: { markets: inWindow.length, dailyTotal: inWindow.reduce((s, c) => s + c.program.pool, 0), eligible: shortlist.length, uncontested: strong, uncontestedDaily: strongPool },
   };
 }
@@ -374,7 +377,8 @@ function joinUsMarket(acct: AccountState, c: UsCandidate, info: UsMarketInfo, no
   };
   acct.markets.push(m);
   const label = c.program.period === "day_of" ? "pre-game" : c.program.period === "live" ? "in-game" : "daily";
-  log(acct.name, `Joined "${info.question}" (${label} pool $${c.program.pool.toFixed(0)}): ${c.orderSize} contracts at the best bid and offer would take about ${(c.share * 100).toFixed(0)}% of it, about $${c.expected.toFixed(2)} for the rest of the period, tying up $${c.capital.toFixed(2)}.`);
+  const pot = c.program.sharedBy && c.program.sharedBy > 1 ? `${label} pot $${(c.program.programPool ?? c.program.pool).toFixed(0)} shared by ${c.program.sharedBy} markets, about $${c.program.pool.toFixed(2)} for this one` : `${label} pool $${c.program.pool.toFixed(2)}`;
+  log(acct.name, `Joined "${info.question}" (${pot}): ${c.orderSize} contracts at the best bid and offer would take about ${(c.share * 100).toFixed(0)}% of it, about $${c.expected.toFixed(2)} for the rest of the period, tying up $${c.capital.toFixed(2)}.`);
 }
 
 export async function applyUsScan(state: RobotState, cfg: UsRobotConfig, api: UsApi, scan: UsScanResult, now: Date): Promise<void> {
@@ -385,6 +389,11 @@ export async function applyUsScan(state: RobotState, cfg: UsRobotConfig, api: Us
     // Leftover contracts are held to settlement.
     for (const hm of [...acct.markets] as UsHeldMarket[]) {
       if (hm.status === "quoting") {
+        const latest = scan.programs.get(hm.conditionId)?.find((p) => p.programId === hm.program.programId);
+        if (latest) {
+          hm.program = latest;
+          hm.dailyRate = latest.pool;
+        }
         if (!scan.open.has(hm.conditionId)) leaveMarket(acct, hm, "its reward programme ended", now, log);
         else if (hm.scanSamples > 0) {
           hm.lowShareScans = hm.scanShareSum / hm.scanSamples < 0.02 ? hm.lowShareScans + 1 : 0;

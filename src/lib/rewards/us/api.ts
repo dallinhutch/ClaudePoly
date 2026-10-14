@@ -70,7 +70,28 @@ export function parseUsTime(s: string | null | undefined): Date | null {
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
-/** Every open market with an active liquidity programme. */
+/**
+ * The API repeats a programme's pool on every market that carries it (379 player-prop
+ * markets on one MLB playoff game all show the same $850), but it is one pot. Split it
+ * evenly across the markets carrying the programme on the same day. Even is an
+ * assumption: markets whose book misses Target Size may not take a slice, which would
+ * make each slice somewhat bigger, but never anywhere near the whole pot.
+ */
+export function splitSharedPools(markets: UsRewardMarket[]): UsRewardMarket[] {
+  const key = (m: UsRewardMarket, p: UsProgram) => `${p.programId}|${m.eventStart ? m.eventStart.toISOString().slice(0, 10) : "-"}`;
+  const counts = new Map<string, number>();
+  for (const m of markets) for (const p of m.programs) counts.set(key(m, p), (counts.get(key(m, p)) ?? 0) + 1);
+  return markets.map((m) => ({
+    ...m,
+    programs: m.programs.map((p) => {
+      const sharedBy = counts.get(key(m, p)) ?? 1;
+      const programPool = p.programPool ?? p.pool;
+      return { ...p, programPool, sharedBy, pool: programPool / sharedBy };
+    }),
+  }));
+}
+
+/** Every open market with an active liquidity programme, each pool already split across the markets sharing it. */
 export async function fetchUsRewardMarkets(maxPages = 500): Promise<UsRewardMarket[]> {
   const out: UsRewardMarket[] = [];
   let token: string | null = null;
@@ -94,7 +115,7 @@ export async function fetchUsRewardMarkets(maxPages = 500): Promise<UsRewardMark
     token = parsed.data.nextPageToken ?? null;
     if (!token || parsed.data.programs.length === 0) break;
   }
-  return out;
+  return splitSharedPools(out);
 }
 
 const LevelSchema = z.object({ px: amount, qty: num });

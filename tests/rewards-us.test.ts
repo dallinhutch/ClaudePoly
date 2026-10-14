@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dec } from "@/lib/decimal";
 import { summarize } from "@/lib/rewards/robot";
-import type { UsBook, UsMarketInfo, UsRewardMarket } from "@/lib/rewards/us/api";
+import { splitSharedPools, type UsBook, type UsMarketInfo, type UsRewardMarket } from "@/lib/rewards/us/api";
 import { applyUsScan, gameKeyOf, gatherUsScan, inferTradeFills, joinBest, newUsState, periodWindow, runUsCycle, US_CONFIG, type UsApi } from "@/lib/rewards/us/robot";
 import { evaluateUsQuotes, scoreSide, type UsProgram } from "@/lib/rewards/us/scoring";
 
@@ -45,6 +45,18 @@ describe("Polymarket US scoring (published rules)", () => {
 
 describe("Polymarket US robot pieces", () => {
   const book = (over: Partial<UsBook> = {}): UsBook => ({ bids: [{ price: 0.74, size: 19 }, { price: 0.65, size: 2570 }, { price: 0.01, size: 5000 }], asks: [{ price: 0.75, size: 9 }, { price: 0.84, size: 4191 }], open: true, sharesTraded: 100, lastTradePx: 0.75, ...over });
+
+  it("splits a programme's pot across every market carrying it on the same day", () => {
+    const day1 = new Date("2026-10-15T00:00:00Z");
+    const day2 = new Date("2026-10-16T00:00:00Z");
+    const mk = (slug: string, eventStart: Date, programId = "props_day_of"): UsRewardMarket => ({ slug, subcategory: "MLB", eventStart, programs: [prog({ programId, pool: 850 })] });
+    const out = splitSharedPools([mk("a", day1), mk("b", day1), mk("c", day1), mk("d", day1), mk("e", day2), mk("f", day1, "moneyline_day_of")]);
+    expect(out[0]!.programs[0]).toMatchObject({ pool: 212.5, programPool: 850, sharedBy: 4 });
+    expect(out[4]!.programs[0]).toMatchObject({ pool: 850, sharedBy: 1 });
+    expect(out[5]!.programs[0]!.pool).toBe(850);
+    // Splitting twice must not split again.
+    expect(splitSharedPools(out)[0]!.programs[0]!.pool).toBe(212.5);
+  });
 
   it("knows when each period pays", () => {
     const ev = new Date("2026-10-15T00:00:00Z");
