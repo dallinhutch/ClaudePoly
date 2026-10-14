@@ -81,6 +81,21 @@ A share of each cap (`reviewBudgetReservePct`) is kept back for re-reviewing ope
 
 ---
 
+## Reward robot (paper, runs on its own)
+
+A separate experiment that needs no database and no AI budget: would a robot that rests small orders in quiet markets collect Polymarket **liquidity rewards**? `src/lib/rewards/` works out where it would rest one minimum-size order each side of the market, then watches the live public order book and trade feed to see which of those orders would have been hit.
+
+```bash
+npm run reward-robot              # runs the loop and serves a dashboard on http://localhost:4319
+npx tsx scripts/reward-robot.ts --once   # one market scan and one look, then exit
+```
+
+- **No orders are ever placed.** It reads public endpoints only; state is kept in `data/reward-robot/`.
+- **Fills are measured**: a real trade (or the real book) crossing one of our prices counts as a fill; leftover shares are held until the market pays out.
+- **Rewards are estimated** from the [published formula](https://docs.polymarket.com/market-makers/liquidity-rewards) and are unconfirmed. Competitors are scored at their maximum, minutes the robot was not looking are not counted, and a market-day under $1 counts as unpaid. The dashboard always shows the account both with and without rewards.
+- Two paper accounts run side by side ($20 and $200) so the effect of having room for more than one market is visible.
+- On the VPS it runs as the `reward-robot` service (state in the `robotdata` volume) and its page is at `/robot` behind the dashboard login. Start or update it with `docker compose up -d --no-deps reward-robot web`.
+
 ## Local development
 
 Requirements: Node 22+, PostgreSQL 16 (or Docker).

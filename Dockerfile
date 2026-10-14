@@ -24,6 +24,8 @@ COPY --chown=app:app drizzle ./drizzle
 COPY --chown=app:app src ./src
 COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app strategies ./strategies
+# The reward robot keeps its state here (a named volume mounted over it inherits this ownership).
+RUN mkdir -p /app/data/reward-robot && chown -R app:app /app/data
 USER app
 EXPOSE 3000
 CMD ["npm", "run", "start"]

@@ -18,6 +18,7 @@ id_ed25519*
 
 # local data
 backups/
+data/
 *.dump
 *.sql.gz
 .DS_Store

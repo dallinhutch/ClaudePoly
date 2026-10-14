@@ -110,7 +110,7 @@ export class PolymarketHttpError extends Error {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function getJson(url: string, init?: RequestInit, attempts = 4): Promise<unknown> {
+export async function getJson(url: string, init?: RequestInit, attempts = 4): Promise<unknown> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {

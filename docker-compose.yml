@@ -43,6 +43,8 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [internal, root_default]
+    volumes:
+      - robotdata:/app/data/reward-robot:ro
     labels:
       - traefik.enable=true
       - traefik.docker.network=root_default
@@ -70,6 +72,21 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
 
+  # Paper liquidity-rewards experiment. Public Polymarket data only: no database,
+  # no secrets (deliberately no env_file), never places an order.
+  reward-robot:
+    image: polytrader:latest
+    command: ["npm", "run", "reward-robot"]
+    restart: unless-stopped
+    environment:
+      REWARD_ROBOT_DIR: /app/data/reward-robot
+    volumes:
+      - robotdata:/app/data/reward-robot
+    networks: [internal]
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
 networks:
   # Ordinary bridge (not `internal: true`) so the worker can reach Polymarket and Anthropic.
   internal: {}
@@ -78,3 +95,4 @@ networks:
 
 volumes:
   pgdata: {}
+  robotdata: {}

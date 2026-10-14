@@ -30,6 +30,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
             {NAV.map(([href, label]) => (
               <Link key={href} href={href} className="hover:text-zinc-900">{label}</Link>
             ))}
+            {/* A plain link: /robot is a route handler serving its own page, not part of this app's client navigation. */}
+            <a href="/robot" className="hover:text-zinc-900">Reward robot</a>
           </nav>
           <form action={logoutAction} className="ml-auto flex items-center gap-3 text-sm">
             <span className="hidden text-zinc-500 sm:inline">{user.email}</span>
