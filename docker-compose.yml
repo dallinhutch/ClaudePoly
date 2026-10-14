@@ -44,7 +44,7 @@ services:
       migrate: { condition: service_completed_successfully }
     networks: [internal, root_default]
     volumes:
-      - robotdata:/app/data/reward-robot:ro
+      - robotdata-us:/app/data/reward-robot:ro
     labels:
       - traefik.enable=true
       - traefik.docker.network=root_default
@@ -72,16 +72,16 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
 
-  # Paper liquidity-rewards experiment. Public Polymarket data only: no database,
-  # no secrets (deliberately no env_file), never places an order.
+  # Paper liquidity-rewards experiment on Polymarket US (the exchange the owner can use).
+  # Public data only: no database, no secrets (deliberately no env_file), never places an order.
   reward-robot:
     image: polytrader:latest
-    command: ["npm", "run", "reward-robot"]
+    command: ["npm", "run", "reward-robot-us"]
     restart: unless-stopped
     environment:
       REWARD_ROBOT_DIR: /app/data/reward-robot
     volumes:
-      - robotdata:/app/data/reward-robot
+      - robotdata-us:/app/data/reward-robot
     networks: [internal]
     logging:
       driver: json-file
@@ -95,4 +95,4 @@ networks:
 
 volumes:
   pgdata: {}
-  robotdata: {}
+  robotdata-us: {}

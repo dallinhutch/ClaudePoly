@@ -136,6 +136,8 @@ export interface RobotEvent {
 
 export interface RobotState {
   version: 1;
+  /** Which exchange's reward rules the robot follows. Absent means the international exchange. */
+  venue?: "intl" | "us";
   startedAt: string;
   updatedAt: string;
   cycles: number;
@@ -216,21 +218,21 @@ export const liveApi: RobotApi = {
 // ---- helpers ----
 
 const MAX_EVENTS = 300;
-const NO_QUOTES: Quotes = { bid: null, ask: null };
-const utcDay = (now: Date) => now.toISOString().slice(0, 10);
+export const NO_QUOTES: Quotes = { bid: null, ask: null };
+export const utcDay = (now: Date) => now.toISOString().slice(0, 10);
 const money = (v: Dec | number | string) => `$${dec(v).toFixed(2)}`;
 const cents = (p: number) => `${(p * 100).toFixed(1)}c`;
 
-type Log = (account: string, text: string) => void;
+export type Log = (account: string, text: string) => void;
 
-function logger(state: RobotState, now: Date): Log {
+export function logger(state: RobotState, now: Date): Log {
   return (account, text) => {
     state.events.push({ at: now.toISOString(), account, text });
     if (state.events.length > MAX_EVENTS) state.events.splice(0, state.events.length - MAX_EVENTS);
   };
 }
 
-const positionOf = (hm: HeldMarket): LpPosition => ({ yes: dec(hm.yes), no: dec(hm.no), cashFlow: dec(hm.cashFlow), fills: hm.fills });
+export const positionOf = (hm: HeldMarket): LpPosition => ({ yes: dec(hm.yes), no: dec(hm.no), cashFlow: dec(hm.cashFlow), fills: hm.fills });
 
 function storePosition(hm: HeldMarket, pos: LpPosition) {
   hm.yes = pos.yes.toString();
@@ -239,14 +241,14 @@ function storePosition(hm: HeldMarket, pos: LpPosition) {
   hm.fills = pos.fills;
 }
 
-const isFlat = (hm: HeldMarket) => dec(hm.yes).isZero() && dec(hm.no).isZero();
+export const isFlat = (hm: HeldMarket) => dec(hm.yes).isZero() && dec(hm.no).isZero();
 
 /** Cash already promised to the resting orders of the account's other markets. */
-function reservedElsewhere(acct: AccountState, except: HeldMarket): number {
+export function reservedElsewhere(acct: AccountState, except: HeldMarket): number {
   return acct.markets.filter((m) => m !== except).reduce((s, m) => s + quoteCapital(m.quotes, Number(m.yes)), 0);
 }
 
-function recordFill(acct: AccountState, hm: HeldMarket, f: PaperFill, log: Log) {
+export function recordFill(acct: AccountState, hm: HeldMarket, f: PaperFill, log: Log) {
   const { next, cashDelta } = applyLpFill(positionOf(hm), f.side, f.price, f.size);
   storePosition(hm, next);
   acct.cash = dec(acct.cash).plus(cashDelta).toString();
@@ -261,7 +263,7 @@ function closeMarket(acct: AccountState, hm: HeldMarket, reason: string, trading
 }
 
 /** Stop quoting. Leftover shares are kept until the market pays out; a flat market is closed straight away. */
-function leaveMarket(acct: AccountState, hm: HeldMarket, reason: string, now: Date, log: Log) {
+export function leaveMarket(acct: AccountState, hm: HeldMarket, reason: string, now: Date, log: Log) {
   hm.status = "holding";
   hm.quotes = NO_QUOTES;
   hm.leftAt = now.toISOString();
@@ -270,7 +272,7 @@ function leaveMarket(acct: AccountState, hm: HeldMarket, reason: string, now: Da
   if (isFlat(hm)) closeMarket(acct, hm, reason, dec(hm.cashFlow), null, now);
 }
 
-function settleMarket(acct: AccountState, hm: HeldMarket, payoutYes: number, now: Date, log: Log) {
+export function settleMarket(acct: AccountState, hm: HeldMarket, payoutYes: number, now: Date, log: Log) {
   const { cashDelta, realized } = settleLpPosition(positionOf(hm), payoutYes);
   acct.cash = dec(acct.cash).plus(cashDelta).toString();
   hm.leftAt ??= now.toISOString();
@@ -537,7 +539,9 @@ export function summarize(acct: AccountState, now: Date): AccountSummary {
   let counted = ZERO;
   let atRisk = ZERO;
   for (const [key, amount] of Object.entries(acct.rewardDays)) {
-    if (!key.startsWith(today)) continue;
+    // International keys are a UTC day; US keys start with the period's end time and stay open until it passes.
+    const usPeriod = key.length > 10 && key[10] === "T";
+    if (!usPeriod && !key.startsWith(today)) continue;
     const r = settleRewardDay(amount);
     counted = counted.plus(r.paid);
     atRisk = atRisk.plus(r.forfeited);

@@ -94,7 +94,8 @@ npx tsx scripts/reward-robot.ts --once   # one market scan and one look, then ex
 - **Fills are measured**: a real trade (or the real book) crossing one of our prices counts as a fill; leftover shares are held until the market pays out.
 - **Rewards are estimated** from the [published formula](https://docs.polymarket.com/market-makers/liquidity-rewards) and are unconfirmed. Competitors are scored at their maximum, minutes the robot was not looking are not counted, and a market-day under $1 counts as unpaid. The dashboard always shows the account both with and without rewards.
 - Two paper accounts run side by side ($20 and $200) so the effect of having room for more than one market is visible.
-- On the VPS it runs as the `reward-robot` service (state in the `robotdata` volume) and its page is at `/robot` behind the dashboard login. Start or update it with `docker compose up -d --no-deps reward-robot web`.
+- **Polymarket US version** (`src/lib/rewards/us/`, `npm run reward-robot-us`): US incentives pay each period's pool to orders at or near the best price (discounted per tick, walked to a Target Size), so it joins the best bid and offer and infers fills from the book's traded total and last price, since Polymarket US has no public trade feed. Three paper accounts: $20 and $200 (20-contract orders) and $1,000 (100-contract orders).
+- On the VPS the `reward-robot` service runs the US version (state in the `robotdata-us` volume) and its page is at `/robot` behind the dashboard login. Start or update it with `docker compose up -d --no-deps reward-robot web`.
 
 ## Local development
 

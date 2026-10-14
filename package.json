@@ -13,6 +13,7 @@
     "start": "next start",
     "worker": "tsx src/worker/index.ts",
     "reward-robot": "tsx scripts/reward-robot.ts",
+    "reward-robot-us": "tsx scripts/reward-robot-us.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "create-admin": "tsx scripts/create-admin.ts",

@@ -55,7 +55,7 @@ function marketRow(hm: HeldMarket, now: Date): string {
   </tr>`;
 }
 
-function accountCard(acct: AccountState, now: Date): string {
+function accountCard(acct: AccountState, now: Date, us: boolean): string {
   const s = summarize(acct, now);
   const change = s.total.minus(s.startingCash);
   const changeWithout = s.totalWithoutRewards.minus(s.startingCash);
@@ -76,13 +76,13 @@ function accountCard(acct: AccountState, now: Date): string {
     <div class="grid">
       <div><span>Rewards (estimated)</span><b class="${tone(rewards)}">${signed(rewards)}</b><small>from the published formula</small></div>
       <div><span>Result from fills</span><b class="${tone(s.tradingResult)}">${signed(s.tradingResult)}</b><small>shares we were left holding, at today's price</small></div>
-      <div><span>Earned today, not yet safe</span><b>${usd(s.rewardsPendingAtRisk)}</b><small>in markets still under the $1 daily minimum</small></div>
+      <div><span>${us ? "Earned in periods still running, under $1 so far" : "Earned today, not yet safe"}</span><b>${usd(s.rewardsPendingAtRisk)}</b><small>${us ? "a period that ends under $1 pays nothing" : "in markets still under the $1 daily minimum"}</small></div>
       <div><span>Lost to the $1 rule</span><b>${usd(s.rewardsForfeited)}</b><small>earned but too small to be paid</small></div>
       <div><span>Cash</span><b>${usd(s.cash)}</b><small>${s.quoting} market${s.quoting === 1 ? "" : "s"} being quoted</small></div>
       <div><span>Shares held</span><b>${usd(s.inventoryValue)}</b><small>${s.holding} market${s.holding === 1 ? "" : "s"} waiting to pay out</small></div>
     </div>
     ${rows ? `<table>
-      <thead><tr><th>Market</th><th>Pool / day</th><th>Our share</th><th>Earned today</th><th>Earned in all</th><th>Fills</th><th>Holding</th><th>Fill result</th><th>Ends in</th></tr></thead>
+      <thead><tr><th>Market</th><th>${us ? "Pool (this period)" : "Pool / day"}</th><th>Our share</th><th>${us ? "Earned this period" : "Earned today"}</th><th>Earned in all</th><th>Fills</th><th>Holding</th><th>Fill result</th><th>${us ? "Period ends in" : "Ends in"}</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>` : `<p class="sub">Not in any market yet. The first scan picks them.</p>`}
     ${closed ? `<h3>Markets it has left</h3><table>
@@ -93,11 +93,12 @@ function accountCard(acct: AccountState, now: Date): string {
 }
 
 export function renderDashboard(state: RobotState, now: Date, opts: { backHref?: string } = {}): string {
+  const us = state.venue === "us";
   const hours = (now.getTime() - Date.parse(state.startedAt)) / 3_600_000;
   const pools = state.poolsSeen;
   const candidates = state.candidates.map((c) => `<tr>
     <td class="q">${esc(c.question)}</td><td>${usd(c.dailyRate)}</td><td>${pct(c.share)}</td><td>${usd(c.expectedDailyReward)}</td><td>${usd(c.capital)}</td>
-    <td>${usd(c.volume24h)}</td><td>${duration(c.hoursLeft ?? Infinity)}</td>
+    ${us ? "" : `<td>${usd(c.volume24h)}</td>`}<td>${duration(c.hoursLeft ?? Infinity)}</td>
   </tr>`).join("");
   const events = state.events.slice(-40).reverse().map((e) => `<li><time>${esc(e.at.slice(5, 16).replace("T", " "))} UTC</time> <b>${esc(e.account)}</b> ${esc(e.text)}</li>`).join("");
   return `<!doctype html>
@@ -106,7 +107,7 @@ export function renderDashboard(state: RobotState, now: Date, opts: { backHref?:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="30">
-<title>Reward robot (paper)</title>
+<title>${us ? "Reward robot US (paper)" : "Reward robot (paper)"}</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --ink:#15181d; --dim:#667085; --line:#e4e7ec; --up:#0a7d43; --down:#b42318; --warn-bg:#fff4d6; --warn-ink:#6b4e00; }
   @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b21; --ink:#e8eaed; --dim:#98a2b3; --line:#2a2f38; --up:#4ade80; --down:#f97066; --warn-bg:#3a2f0b; --warn-ink:#fde68a; } }
@@ -133,15 +134,17 @@ export function renderDashboard(state: RobotState, now: Date, opts: { backHref?:
 </head>
 <body><main>
 ${opts.backHref ? `<div class="sub"><a href="${esc(opts.backHref)}">&larr; Back to the trading dashboard</a></div>` : ""}
-<h1>Reward robot &mdash; paper test</h1>
+<h1>Reward robot${us ? " (Polymarket US)" : ""} &mdash; paper test</h1>
 <div class="sub">Running ${hours < 1 ? `${Math.round(hours * 60)} minutes` : `${hours.toFixed(1)} hours`} &middot; last look ${ago(state.updatedAt, now)} &middot; last market scan ${ago(state.lastScanAt, now)} &middot; this page refreshes itself</div>
 <div class="warn"><b>No real orders, no real money.</b> The robot works out where it would rest orders, then watches the real market to see which would have been hit. Rewards are <b>estimates</b> from Polymarket's published formula; only a real account can confirm they are paid.</div>
-${pools ? `<p class="sub">Last scan: ${pools.markets.toLocaleString("en-US")} pools paying ${usd(pools.dailyTotal)} a day in all &middot; ${pools.eligible.toLocaleString("en-US")} fit our rules &middot; ${pools.uncontested.toLocaleString("en-US")} of those had nobody collecting (${usd(pools.uncontestedDaily)} a day).</p>` : ""}
-${state.accounts.map((a) => accountCard(a, now)).join("")}
+${pools ? (us
+  ? `<p class="sub">Last scan: ${pools.markets.toLocaleString("en-US")} reward periods running now (${usd(pools.dailyTotal)} in their pools) &middot; ${pools.eligible.toLocaleString("en-US")} books checked &middot; in ${pools.uncontested.toLocaleString("en-US")} of them our order would take half the pool or more (${usd(pools.uncontestedDaily)}).</p>`
+  : `<p class="sub">Last scan: ${pools.markets.toLocaleString("en-US")} pools paying ${usd(pools.dailyTotal)} a day in all &middot; ${pools.eligible.toLocaleString("en-US")} fit our rules &middot; ${pools.uncontested.toLocaleString("en-US")} of those had nobody collecting (${usd(pools.uncontestedDaily)} a day).</p>`) : ""}
+${state.accounts.map((a) => accountCard(a, now, us)).join("")}
 <section class="card">
   <h2>Best pools at the last scan</h2>
   ${candidates ? `<table>
-    <thead><tr><th>Market</th><th>Pool / day</th><th>Our share</th><th>We would earn / day</th><th>Money tied up</th><th>Traded in 24h</th><th>Ends in</th></tr></thead>
+    <thead><tr><th>Market</th><th>${us ? "Pool (period)" : "Pool / day"}</th><th>Our share</th><th>${us ? "We would earn (rest of period)" : "We would earn / day"}</th><th>Money tied up</th>${us ? "" : "<th>Traded in 24h</th>"}<th>${us ? "Period ends in" : "Ends in"}</th></tr></thead>
     <tbody>${candidates}</tbody>
   </table>` : `<p class="sub">Waiting for the first scan.</p>`}
 </section>
@@ -149,6 +152,8 @@ ${state.accounts.map((a) => accountCard(a, now)).join("")}
   <h2>What happened</h2>
   ${events ? `<ul>${events}</ul>` : `<p class="sub">Nothing yet.</p>`}
 </section>
-<p class="sub">How to read this: "our share" assumes every other qualifying order belongs to competitors scored at their maximum. Reward minutes are only counted while the robot was looking. A market that earns under $1 in a UTC day is counted as paying nothing. Fills are assumed whenever a real trade or the real book crossed one of our prices. ${state.lastError ? `Last data error: ${esc(state.lastError)}` : ""}</p>
+<p class="sub">How to read this: ${us
+  ? `Polymarket US pays each market's pool per period (pre-game: the 6 hours before kick-off; in-game: from kick-off, spread here over ${4} hours, which understates it if games end sooner) to orders at or near the best price; the robot keeps one order at the best bid and one at the best offer. A period worth under $1 to us counts as nothing. Polymarket US publishes no trade feed, so fills are inferred from the running traded total and the last trade price against our place in line; that is approximate.`
+  : `"our share" assumes every other qualifying order belongs to competitors scored at their maximum. A market that earns under $1 in a UTC day is counted as paying nothing. Fills are assumed whenever a real trade or the real book crossed one of our prices.`} Reward time is only counted while the robot was looking. ${state.lastError ? `Last data error: ${esc(state.lastError)}` : ""}</p>
 </main></body></html>`;
 }
