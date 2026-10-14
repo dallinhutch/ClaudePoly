@@ -62,7 +62,9 @@ export const US_CONFIG: UsRobotConfig = {
   minMinutesLeft: 20,
   liveHours: 4,
   maxPerGame: 2,
-  periods: ["day_of", "live", "daily_event"],
+  // In-game periods are left out: on the first evening (2026-10-14) the $1,000 paper account lost $379 to fills in
+  // live Champions League markets while earning about $135 of estimated rewards there. Scores move prices too fast.
+  periods: ["day_of", "daily_event"],
 };
 
 /** US-specific facts kept on each held market (the shared fields drive the dashboard). */
