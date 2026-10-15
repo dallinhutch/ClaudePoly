@@ -223,9 +223,19 @@ function stepUsMarket(acct: AccountState, hm: UsHeldMarket, cfg: UsRobotConfig, 
   if (book.sharesTraded !== null) hm.lastShares = book.sharesTraded;
   if (book.lastTradePx !== null) hm.lastPrice = book.lastTradePx;
 
-  // 2. The period may have ended: move on to the next one for this market, or stop.
+  // 2. The period may have ended. A daily programme simply starts its next day, so keep quoting
+  //    (leaving would strand whatever contracts we hold); any other period ends our stay.
   if (hm.status === "quoting" && now.getTime() >= Date.parse(hm.periodEnd)) {
-    leaveMarket(acct, hm, `its ${hm.program.period.replace("_", "-")} reward period ended`, now, log);
+    const next = hm.program.period === "daily_event" ? periodWindow("daily_event", null, now, cfg.liveHours) : null;
+    if (next && now.getTime() < next.end.getTime()) {
+      hm.periodStart = next.start.toISOString();
+      hm.periodEnd = next.end.toISOString();
+      hm.endDate = hm.periodEnd;
+      hm.rewardDay = hm.periodEnd;
+      hm.rewardToday = "0";
+    } else {
+      leaveMarket(acct, hm, `its ${hm.program.period.replace("_", "-")} reward period ended`, now, log);
+    }
   }
   if (hm.status === "quoting" && !book.open) leaveMarket(acct, hm, "it stopped trading", now, log);
 
@@ -401,6 +411,20 @@ export async function applyUsScan(state: RobotState, cfg: UsRobotConfig, api: Us
         }
         hm.scanShareSum = 0;
         hm.scanSamples = 0;
+      }
+      // A market left only because its daily period ended (before daily periods rolled over) can pick up again.
+      const latestDaily = hm.status === "holding" && hm.program.period === "daily_event" && scan.open.has(hm.conditionId)
+        ? scan.programs.get(hm.conditionId)?.find((p) => p.programId === hm.program.programId)
+        : undefined;
+      const today = periodWindow("daily_event", null, now, cfg.liveHours);
+      if (latestDaily && today && hm.leftReason?.includes("reward period ended")) {
+        Object.assign(hm, {
+          status: "quoting", leftAt: null, leftReason: null, program: latestDaily, dailyRate: latestDaily.pool,
+          periodStart: today.start.toISOString(), periodEnd: today.end.toISOString(), endDate: today.end.toISOString(), rewardDay: today.end.toISOString(),
+          rewardToday: "0", lastSampleAt: null, lastShares: null, quotes: NO_QUOTES,
+        });
+        log(acct.name, `Resumed quoting "${hm.question}": its daily reward programme carries on today.`);
+        continue;
       }
       if (hm.status === "holding" && hm.leftAt && !isFlat(hm)) {
         const payout = await api.settlement(hm.conditionId).catch(() => null);

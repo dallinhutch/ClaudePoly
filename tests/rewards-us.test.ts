@@ -88,6 +88,33 @@ describe("Polymarket US robot pieces", () => {
     expect(inferTradeFills(quotes, { bid: 19, ask: 9 }, 5, 0.75, 1).fills).toEqual([]);
   });
 
+  it("rolls a daily programme into its next day instead of abandoning the market", async () => {
+    const now = new Date("2026-10-15T00:00:00Z"); // 8 pm Eastern, four hours before the daily period ends
+    const market: UsRewardMarket = { slug: "world-series-matchup", subcategory: "MLB", eventStart: null, programs: [prog({ period: "daily_event", pool: 240, discountFactor: 0.5, targetSize: 100 })] };
+    const api: UsApi = {
+      rewardMarkets: async () => [market],
+      book: async () => ({ bids: [{ price: 0.4, size: 5 }, { price: 0.1, size: 1000 }], asks: [{ price: 0.42, size: 5 }, { price: 0.9, size: 1000 }], open: true, sharesTraded: 0, lastTradePx: null }),
+      market: async (): Promise<UsMarketInfo> => ({ question: "World Series Matchup", open: true, tick: 0.01 }),
+      settlement: async () => null,
+    };
+    const cfg = { ...US_CONFIG, accounts: [{ name: "test", startingCash: 40, orderSize: 20 }] };
+    const state = newUsState(cfg, now);
+    await applyUsScan(state, cfg, api, await gatherUsScan(cfg, api, now), now);
+    const hm = state.accounts[0]!.markets[0]!;
+    expect(hm.endDate).toBe("2026-10-15T04:00:00.000Z");
+    await runUsCycle(state, cfg, api, new Date("2026-10-15T04:00:20Z"));
+    expect(hm.status).toBe("quoting");
+    expect(hm.endDate).toBe("2026-10-16T04:00:00.000Z");
+    expect(hm.quotes.bid).not.toBeNull();
+
+    // A market that was left at a period end (the old behaviour) resumes at the next scan.
+    Object.assign(hm, { status: "holding", leftAt: "2026-10-15T04:00:00.000Z", leftReason: "its daily-event reward period ended", yes: "20" });
+    const later = new Date("2026-10-15T05:00:00Z");
+    await applyUsScan(state, cfg, api, await gatherUsScan(cfg, api, later), later);
+    expect(hm.status).toBe("quoting");
+    expect(state.accounts[0]!.markets).toHaveLength(1);
+  });
+
   it("scans, joins, earns the pool over the period by its share, and records a fill", async () => {
     const now = new Date("2026-10-14T20:00:00Z");
     const market: UsRewardMarket = { slug: "astatc-mlb-mil-lad-2026-10-14-er-robgas-gte1", subcategory: "MLB", eventStart: new Date("2026-10-15T00:00:00Z"), programs: [prog({ pool: 21600, discountFactor: 0.2, targetSize: 3000 })] };
